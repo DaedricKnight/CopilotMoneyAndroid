@@ -8,8 +8,11 @@ import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.AccountType
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.Money
+import com.artemkhateev.finance.data.model.NewestFirst
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.newTransactionId
+import com.artemkhateev.finance.data.transactionsWindowStart
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -55,14 +58,14 @@ class CloudFinanceRepository(
 
     override val accounts: Flow<List<Account>> = perUser({ it.collection(ACCOUNTS) }, ::accountFrom)
 
-    // Экраны показывают прошлый и текущий месяц: более старые документы не читаем, чтобы не тратить квоту.
+    // Более старые документы не читаем, чтобы не тратить квоту: экраны их всё равно не показывают.
     override val transactions: Flow<List<Transaction>> = perUser(
         { user ->
-            val since = today().minusMonths(1).withDayOfMonth(1).toString()
+            val since = transactionsWindowStart(today()).toString()
             user.collection(TRANSACTIONS).whereGreaterThanOrEqualTo("date", since)
         },
         ::transactionFrom,
-    ).map { list -> list.sortedByDescending { it.date.toEpochDay() } }
+    ).map { list -> list.sortedWith(NewestFirst) }
 
     override val recurrings: Flow<List<Recurring>> = perUser({ it.collection(RECURRINGS) }, ::recurringFrom)
 
@@ -78,6 +81,19 @@ class CloudFinanceRepository(
         val user = currentUserDoc() ?: return
         user.collection(TRANSACTIONS).document(transactionId).update("categoryId", categoryId)
             .addOnFailureListener { Log.w(TAG, "setCategory failed", it) }
+    }
+
+    override suspend fun saveTransaction(transaction: Transaction) {
+        val user = currentUserDoc() ?: return
+        val saved = if (transaction.id.isBlank()) transaction.copy(id = newTransactionId()) else transaction
+        user.collection(TRANSACTIONS).document(saved.id).set(saved.toMap())
+            .addOnFailureListener { Log.w(TAG, "saveTransaction failed", it) }
+    }
+
+    override suspend fun deleteTransaction(transactionId: String) {
+        val user = currentUserDoc() ?: return
+        user.collection(TRANSACTIONS).document(transactionId).delete()
+            .addOnFailureListener { Log.w(TAG, "deleteTransaction failed", it) }
     }
 
     /** Заливает демо-данные. Идентификаторы постоянные: повторный вызов перезаписывает те же документы. */

@@ -1,6 +1,7 @@
 package com.artemkhateev.finance.feature.transactions
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,12 +10,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,45 +46,90 @@ import com.artemkhateev.finance.ui.theme.color
 fun TransactionsScreen(
     viewModel: TransactionsViewModel = viewModel { TransactionsViewModel(AppGraph.repository) },
 ) {
-    val state by viewModel.days.collectAsStateWithLifecycle()
-    val days = state ?: return
+    val loaded by viewModel.state.collectAsStateWithLifecycle()
+    val draft by viewModel.draft.collectAsStateWithLifecycle()
+    val state = loaded ?: return
     val colors = FinanceTheme.colors
 
-    if (days.isEmpty()) {
-        EmptyState("No transactions yet", "Load demo data in settings to see the app with real numbers.")
-        return
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = screenContentPadding(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        days.forEach { day ->
-            item(key = "header-${day.date}") { SectionHeader(day.label) }
-            item(key = "day-${day.date}") {
-                FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
-                    day.rows.forEachIndexed { index, row ->
-                        if (index > 0) {
-                            HorizontalDivider(color = colors.border, modifier = Modifier.padding(start = 62.dp))
+    Box(Modifier.fillMaxSize()) {
+        if (state.days.isEmpty()) {
+            EmptyState("No transactions yet", "Tap + to add one, or load demo data in settings.")
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                // Запас снизу, чтобы последнюю строку не закрывала кнопка «+».
+                contentPadding = screenContentPadding(extraBottom = 72.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                state.days.forEach { day ->
+                    item(key = "header-${day.date}") { SectionHeader(day.label) }
+                    item(key = "day-${day.date}") {
+                        FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
+                            day.rows.forEachIndexed { index, row ->
+                                if (index > 0) {
+                                    HorizontalDivider(color = colors.border, modifier = Modifier.padding(start = 62.dp))
+                                }
+                                TransactionRow(row, onClick = { viewModel.startEdit(row.transaction) })
+                            }
                         }
-                        TransactionRow(row)
                     }
                 }
             }
         }
+        AddTransactionButton(
+            onClick = viewModel::startNew,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(20.dp),
+        )
+    }
+
+    draft?.let { current ->
+        TransactionEditorSheet(
+            draft = current,
+            categories = state.categories,
+            accounts = state.accounts,
+            onChange = viewModel::updateDraft,
+            onSave = viewModel::saveDraft,
+            onDelete = viewModel::deleteDraft,
+            onDismiss = viewModel::dismissDraft,
+        )
     }
 }
 
 @Composable
-private fun TransactionRow(row: TransactionRowUi) {
+private fun AddTransactionButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = FinanceTheme.colors
+    Box(
+        modifier = modifier
+            .size(56.dp)
+            .clip(CircleShape)
+            .background(colors.accent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Add,
+            contentDescription = "Add transaction",
+            tint = colors.background,
+            modifier = Modifier.size(28.dp),
+        )
+    }
+}
+
+@Composable
+private fun TransactionRow(row: TransactionRowUi, onClick: () -> Unit) {
     val colors = FinanceTheme.colors
     val typography = FinanceTheme.typography
     val tone = row.category?.tone?.color() ?: colors.textSecondary
     val income = row.transaction.amount.minor > 0
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(

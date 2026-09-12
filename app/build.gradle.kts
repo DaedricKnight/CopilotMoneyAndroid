@@ -5,8 +5,8 @@ plugins {
 }
 
 // Firebase включается, только когда в app/ лежит google-services.json (в git его нет).
-// Без файла приложение собирается и работает в демо-режиме.
-if (file("google-services.json").exists()) {
+// Без файла — или со свойством -Pdemo — приложение собирается в демо-режиме на данных в памяти.
+if (file("google-services.json").exists() && !project.hasProperty("demo")) {
     apply(plugin = libs.plugins.google.services.get().pluginId)
 }
 

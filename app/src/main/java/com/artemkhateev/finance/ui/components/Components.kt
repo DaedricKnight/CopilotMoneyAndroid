@@ -65,9 +65,9 @@ fun appBackgroundBrush(colors: FinanceColors): Brush =
 
 /** Отступы прокручиваемого экрана: контент идёт под панель навигации, но не прячется за ней. */
 @Composable
-fun screenContentPadding(): PaddingValues {
+fun screenContentPadding(extraBottom: Dp = 0.dp): PaddingValues {
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    return PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = bottomInset + 24.dp)
+    return PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = bottomInset + 24.dp + extraBottom)
 }
 
 @Composable
@@ -151,7 +151,60 @@ fun CategoryChip(category: Category?, modifier: Modifier = Modifier) {
     }
 }
 
-/** Сумма с мелким приподнятым символом валюты, как в референсе. */
+/** Переключатель из нескольких вариантов, как «Amount | Percentage» в референсе. */
+@Composable
+fun SegmentedControl(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = FinanceTheme.colors
+    Row(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(colors.background)
+            .border(1.dp, colors.border, CircleShape)
+            .padding(4.dp),
+    ) {
+        options.forEachIndexed { index, option ->
+            val selected = index == selectedIndex
+            Text(
+                text = option,
+                style = FinanceTheme.typography.bodySecondary,
+                color = if (selected) colors.textPrimary else colors.textSecondary,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .then(if (selected) Modifier.background(colors.button) else Modifier)
+                    .clickable { onSelect(index) }
+                    .padding(horizontal = 22.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
+/** Пилюля выбора: счёт, дата и прочие варианты «один из нескольких». */
+@Composable
+fun SelectablePill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = FinanceTheme.colors
+    Text(
+        text = text,
+        style = FinanceTheme.typography.bodySecondary,
+        color = if (selected) colors.accent else colors.textSecondary,
+        maxLines = 1,
+        modifier = modifier
+            .clip(CircleShape)
+            .background(if (selected) colors.pill else Color.Transparent)
+            .border(1.dp, if (selected) colors.accent.copy(alpha = 0.6f) else colors.border, CircleShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
+/** Символ валюты в суммах мельче цифр и приподнят, как в референсе. */
+fun currencySymbolStyle(fontSize: TextUnit) = SpanStyle(fontSize = fontSize * 0.62f, baselineShift = BaselineShift(0.48f))
+
+/** Сумма с мелким приподнятым символом валюты. */
 fun AnnotatedString.Builder.appendMoney(
     amount: Money,
     fontSize: TextUnit,
@@ -160,9 +213,7 @@ fun AnnotatedString.Builder.appendMoney(
 ) {
     val parts = MoneyFormatter.parts(amount, cents, sign)
     append(parts.sign)
-    withStyle(SpanStyle(fontSize = fontSize * 0.62f, baselineShift = BaselineShift(0.48f))) {
-        append(parts.symbol)
-    }
+    withStyle(currencySymbolStyle(fontSize)) { append(parts.symbol) }
     append(parts.digits)
 }
 

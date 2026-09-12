@@ -7,8 +7,11 @@ import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.CategoryTone
 import com.artemkhateev.finance.data.model.Money
+import com.artemkhateev.finance.data.model.NewestFirst
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.newTransactionId
+import com.artemkhateev.finance.data.transactionsWindowStart
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -37,6 +40,15 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
         transactionsState.update { list ->
             list.map { if (it.id == transactionId) it.copy(categoryId = categoryId) else it }
         }
+    }
+
+    override suspend fun saveTransaction(transaction: Transaction) {
+        val saved = if (transaction.id.isBlank()) transaction.copy(id = newTransactionId()) else transaction
+        transactionsState.update { list -> (list.filterNot { it.id == saved.id } + saved).sortedWith(NewestFirst) }
+    }
+
+    override suspend fun deleteTransaction(transactionId: String) {
+        transactionsState.update { list -> list.filterNot { it.id == transactionId } }
     }
 }
 
@@ -99,7 +111,7 @@ internal object DemoData {
         fun cents(from: Double, to: Double) = random.nextInt((from * 100).toInt(), (to * 100).toInt()) / 100.0
         fun chance(oneIn: Int) = random.nextInt(oneIn) == 0
 
-        var date = today.minusMonths(1).withDayOfMonth(1)
+        var date = transactionsWindowStart(today)
         while (!date.isAfter(today)) {
             when (date.dayOfMonth) {
                 1 -> {

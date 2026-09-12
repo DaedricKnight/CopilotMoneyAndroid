@@ -7,15 +7,25 @@ import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.ui.format.dayLabel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 data class TransactionRowUi(val transaction: Transaction, val category: Category?, val accountName: String)
 
 data class TransactionDayUi(val date: LocalDate, val label: String, val rows: List<TransactionRowUi>)
+
+data class TransactionsUiState(
+    val days: List<TransactionDayUi>,
+    val categories: List<Category>,
+    val accounts: List<Account>,
+)
 
 fun buildTransactionDays(
     today: LocalDate,
@@ -40,13 +50,46 @@ fun buildTransactionDays(
 }
 
 class TransactionsViewModel(
-    repository: FinanceRepository,
-    today: () -> LocalDate = { LocalDate.now() },
+    private val repository: FinanceRepository,
+    private val today: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
 
-    /** null — данные ещё не пришли; пустой список — транзакций нет. */
-    val days: StateFlow<List<TransactionDayUi>?> =
+    /** null — данные ещё не пришли. */
+    val state: StateFlow<TransactionsUiState?> =
         combine(repository.transactions, repository.categories, repository.accounts) { transactions, categories, accounts ->
-            buildTransactionDays(today(), transactions, categories, accounts)
+            TransactionsUiState(buildTransactionDays(today(), transactions, categories, accounts), categories, accounts)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val mutableDraft = MutableStateFlow<TransactionDraft?>(null)
+
+    /** Открытая форма добавления или правки; null — форма закрыта. */
+    val draft: StateFlow<TransactionDraft?> = mutableDraft.asStateFlow()
+
+    fun startNew() {
+        mutableDraft.value = TransactionDraft(date = today(), accountId = state.value?.accounts?.firstOrNull()?.id)
+    }
+
+    fun startEdit(transaction: Transaction) {
+        mutableDraft.value = TransactionDraft.from(transaction)
+    }
+
+    fun updateDraft(change: (TransactionDraft) -> TransactionDraft) {
+        mutableDraft.update { it?.let(change) }
+    }
+
+    fun dismissDraft() {
+        mutableDraft.value = null
+    }
+
+    fun saveDraft() {
+        val transaction = mutableDraft.value?.toTransaction() ?: return
+        mutableDraft.value = null
+        viewModelScope.launch { repository.saveTransaction(transaction) }
+    }
+
+    fun deleteDraft() {
+        val id = mutableDraft.value?.id?.takeIf { it.isNotBlank() } ?: return
+        mutableDraft.value = null
+        viewModelScope.launch { repository.deleteTransaction(id) }
+    }
 }

@@ -1,6 +1,7 @@
 package com.artemkhateev.finance.data.model
 
 import java.time.LocalDate
+import java.util.UUID
 import kotlin.math.roundToLong
 
 /**
@@ -66,6 +67,14 @@ data class Transaction(
     /** Новые транзакции ждут просмотра в блоке «To review» на дашборде. */
     val reviewed: Boolean = false,
 )
+
+/** Порядок лент: новые даты сверху, внутри дня — по убыванию id. */
+val NewestFirst: Comparator<Transaction> =
+    compareByDescending<Transaction> { it.date.toEpochDay() }.thenByDescending { it.id }
+
+/** Id транзакции, введённой вручную: время создания в начале, поэтому внутри дня новые идут первыми. */
+fun newTransactionId(nowMillis: Long = System.currentTimeMillis()): String =
+    "m-$nowMillis-${UUID.randomUUID().toString().take(8)}"
 
 data class Recurring(
     val id: String,
