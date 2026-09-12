@@ -1,19 +1,23 @@
 # CopilotMoneyAndroid
 
-Рабочее название. Неофициальный проект, не связан с Copilot Money, Inc.
-Перед публикацией сменить название и айдентику — см. «Перед публикацией».
+> **Unofficial personal project.** Not affiliated with, endorsed by, or connected to Copilot Money, Inc.
+> "Copilot Money" is a trademark of its owner. No code or assets of the original app are used;
+> the UI is recreated from publicly available screenshots.
 
-Приложение для личных финансов под Android: бюджеты, транзакции, регулярные платежи,
-денежный поток. Референс по UX и визуальному языку — Copilot Money (iOS).
+Рабочее название. Приложение для личных финансов под Android, по UX и визуальному языку
+повторяющее Copilot Money (iOS). Делается для себя; перед публикацией в сторе сменить название
+и айдентику — см. «Перед публикацией в стор».
 
 ## Что уже сделано
 
 - Каркас: шапка, лента разделов с выбранным пунктом по центру, свайп между разделами.
-- **Dashboard**: остаток бюджета и линия расходов против равномерного темпа, блок «To review»
-  с отметкой просмотренного, кольца бюджетов по категориям.
+- **Dashboard**: остаток бюджета и линия расходов против ожидаемого темпа (регулярные платежи
+  учитываются в дни списания), блок «To review» с отметкой просмотренного, кольца бюджетов.
 - **Transactions**: лента по дням — категория, счёт, сумма, отметка непросмотренных.
+- **Вход и облако**: Firebase Authentication (Google и email) и Firestore. Первый вход создаёт
+  стартовые категории, кнопка *Load demo data* в настройках (шестерёнка) заливает демо-транзакции.
+- Без `app/google-services.json` приложение работает в демо-режиме на данных в памяти.
 - Остальные разделы (Cash flow, Accounts, Investments, Categories, Goals, Recurrings) — заглушки.
-- Данные — демо в памяти за интерфейсом `FinanceRepository`; облачная реализация встанет на его место.
 
 ## Устройство
 
@@ -21,7 +25,9 @@
 | --- | --- |
 | `data/model` | Модели. Деньги — `Money` в центах, не `Double` |
 | `data/demo` | Демо-данные за прошлый и текущий месяц относительно сегодняшней даты |
-| `feature/*` | Экраны. Состояние считается чистыми функциями (`buildDashboard`) и покрыто тестами |
+| `data/auth`, `data/firebase` | Вход (Credential Manager + Firebase Auth) и Firestore |
+| `data/AppGraph.kt` | Выбор реализаций: облако или демо |
+| `feature/*` | Экраны. Состояние считается чистыми функциями и покрыто тестами |
 | `ui/theme` | Все цвета, шрифты и формы. Смена айдентики — правка этих файлов |
 | `ui/components` | Карточки, чипы категорий, кольца, график, лента разделов |
 
@@ -34,16 +40,22 @@ JDK — из Android Studio:
 compileSdk 36. Compose 1.12 и Lifecycle 2.11 уже требуют compileSdk 37: чтобы обновиться,
 сначала поставить SDK Platform 37 через SDK Manager.
 
-## Облако (план)
+## Подключение Firebase
 
-Firebase — часть Google Cloud: Firestore как база, Firebase Authentication для входа.
+1. [Консоль Firebase](https://console.firebase.google.com) → *Create a project*, Google Analytics не нужен.
+   ID проекта потом не меняется — лучше без «copilot».
+2. *Build → Authentication → Get started → Sign-in method*: включить **Email/Password** и **Google**.
+3. *Build → Firestore Database → Create database*: регион в ЕС (`eur3`), *production mode*.
+   Во вкладке *Rules* вставить содержимое [`firestore.rules`](firestore.rules) и нажать *Publish*.
+4. *Project settings → Your apps → Android*: пакет `com.artemkhateev.finance` и SHA-1 отладочного
+   ключа из `./gradlew signingReport` (вариант `debug`). Для релизной сборки позже добавить SHA-1 релизного ключа.
+5. Скачать `google-services.json` **после** шагов 2 и 4 — только тогда в нём есть OAuth-клиент для входа
+   через Google — и положить в `app/`. В git файл не попадает.
 
-- Данные пользователя: `users/{uid}/accounts|categories|transactions|recurrings/{id}`, суммы — целые центы.
-- Security Rules: каждый читает и пишет только свой `users/{uid}`.
-- Регион базы — в ЕС (например, `eur3`): после создания его не поменять.
-- `app/google-services.json` в git не кладём.
+Данные пользователя лежат в `users/{uid}/accounts|categories|transactions|recurrings`. Суммы — целые центы,
+даты — строки `yyyy-MM-dd`.
 
-## Перед публикацией
+## Перед публикацией в стор
 
 - Никакого «Copilot» в названии, иконке, описании и скриншотах стора: это бренд Copilot Money, Inc.,
   а слово COPILOT в США зарегистрировано ещё и за Microsoft. Google Play снимает приложения,

@@ -3,7 +3,6 @@ package com.artemkhateev.finance.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,36 +18,55 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.artemkhateev.finance.R
+import com.artemkhateev.finance.data.AppGraph
+import com.artemkhateev.finance.feature.auth.SignInScreen
 import com.artemkhateev.finance.feature.dashboard.DashboardScreen
 import com.artemkhateev.finance.feature.transactions.TransactionsScreen
-import com.artemkhateev.finance.ui.components.FinanceCard
+import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.PillTabRow
+import com.artemkhateev.finance.ui.components.appBackgroundBrush
 import com.artemkhateev.finance.ui.navigation.AppTab
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import kotlinx.coroutines.launch
 
 @Composable
 fun FinanceApp() {
+    val auth = AppGraph.auth
+    if (auth == null) {
+        // Проекта Firebase в сборке нет — входить некуда, сразу демо-режим.
+        HomeScreen()
+    } else {
+        val user by auth.user.collectAsStateWithLifecycle()
+        if (user == null) SignInScreen() else HomeScreen()
+    }
+}
+
+@Composable
+private fun HomeScreen() {
     val colors = FinanceTheme.colors
     val tabs = AppTab.entries
     val pagerState = rememberPagerState(initialPage = AppTab.Default.ordinal) { tabs.size }
     val scope = rememberCoroutineScope()
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(0f to colors.backgroundTop, 0.4f to colors.background))
+            .background(appBackgroundBrush(colors))
             .statusBarsPadding(),
     ) {
-        AppHeader()
+        AppHeader(onSettingsClick = { settingsOpen = true })
         PillTabRow(
             titles = tabs.map { it.title },
             selectedIndex = pagerState.targetPage,
@@ -59,17 +77,18 @@ fun FinanceApp() {
             when (val tab = tabs[page]) {
                 AppTab.Dashboard -> DashboardScreen()
                 AppTab.Transactions -> TransactionsScreen()
-                else -> PlaceholderScreen(tab)
+                else -> EmptyState(tab.title, "This section isn't built yet")
             }
         }
     }
+    if (settingsOpen) SettingsSheet(onDismiss = { settingsOpen = false })
 }
 
 @Composable
-private fun AppHeader() {
+private fun AppHeader(onSettingsClick: () -> Unit) {
     val colors = FinanceTheme.colors
     Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-        IconButton(onClick = {}, modifier = Modifier.align(Alignment.CenterStart)) {
+        IconButton(onClick = onSettingsClick, modifier = Modifier.align(Alignment.CenterStart)) {
             Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = colors.icon)
         }
         Text(
@@ -80,27 +99,6 @@ private fun AppHeader() {
         )
         IconButton(onClick = {}, modifier = Modifier.align(Alignment.CenterEnd)) {
             Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = "Assistant", tint = colors.icon)
-        }
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(tab: AppTab) {
-    val colors = FinanceTheme.colors
-    Box(Modifier.fillMaxSize().padding(16.dp)) {
-        FinanceCard(
-            hero = true,
-            horizontalAlignment = Alignment.CenterHorizontally,
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 40.dp),
-        ) {
-            Text(tab.title, style = FinanceTheme.typography.cardTitle, color = colors.textPrimary)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "This section isn't built yet",
-                style = FinanceTheme.typography.bodySecondary,
-                color = colors.textSecondary,
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }

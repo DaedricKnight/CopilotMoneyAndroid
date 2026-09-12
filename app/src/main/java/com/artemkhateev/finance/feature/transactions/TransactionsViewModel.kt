@@ -44,8 +44,9 @@ class TransactionsViewModel(
     today: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
 
-    val days: StateFlow<List<TransactionDayUi>> =
+    /** null — данные ещё не пришли; пустой список — транзакций нет. */
+    val days: StateFlow<List<TransactionDayUi>?> =
         combine(repository.transactions, repository.categories, repository.accounts) { transactions, categories, accounts ->
             buildTransactionDays(today(), transactions, categories, accounts)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 }

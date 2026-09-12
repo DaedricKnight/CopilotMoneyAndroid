@@ -10,9 +10,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,10 +28,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -37,6 +42,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.BaselineShift
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -46,11 +52,16 @@ import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.ui.format.MoneyFormatter
 import com.artemkhateev.finance.ui.format.SignStyle
+import com.artemkhateev.finance.ui.theme.FinanceColors
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.TONE_BACKGROUND_ALPHA
 import com.artemkhateev.finance.ui.theme.color
 
 val CardShape = RoundedCornerShape(22.dp)
+
+/** Фон экранов: у шапки чуть светлее, как в референсе. */
+fun appBackgroundBrush(colors: FinanceColors): Brush =
+    Brush.verticalGradient(0f to colors.backgroundTop, 0.4f to colors.background)
 
 /** Отступы прокручиваемого экрана: контент идёт под панель навигации, но не прячется за ней. */
 @Composable
@@ -178,18 +189,50 @@ fun MoneyText(
 }
 
 @Composable
-fun PillButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun PillButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    filled: Boolean = false,
+) {
     val colors = FinanceTheme.colors
     Box(
         modifier = modifier
+            .alpha(if (enabled) 1f else 0.5f)
             .fillMaxWidth()
             .clip(CircleShape)
-            .background(colors.button)
-            .clickable(onClick = onClick)
+            .background(if (filled) colors.accent else colors.button)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text.uppercase(), style = FinanceTheme.typography.button, color = colors.accent)
+        Text(
+            text = text.uppercase(),
+            style = FinanceTheme.typography.button,
+            color = if (filled) colors.background else colors.accent,
+        )
+    }
+}
+
+@Composable
+fun EmptyState(title: String, subtitle: String, modifier: Modifier = Modifier) {
+    val colors = FinanceTheme.colors
+    Box(modifier.fillMaxSize().padding(16.dp)) {
+        FinanceCard(
+            hero = true,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 40.dp),
+        ) {
+            Text(title, style = FinanceTheme.typography.cardTitle, color = colors.textPrimary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = subtitle,
+                style = FinanceTheme.typography.bodySecondary,
+                color = colors.textSecondary,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 

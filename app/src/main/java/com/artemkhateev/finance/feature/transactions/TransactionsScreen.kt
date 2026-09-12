@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.artemkhateev.finance.data.AppGraph
+import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.FinanceCard
 import com.artemkhateev.finance.ui.components.MoneyText
 import com.artemkhateev.finance.ui.components.SectionHeader
@@ -40,8 +41,14 @@ import com.artemkhateev.finance.ui.theme.color
 fun TransactionsScreen(
     viewModel: TransactionsViewModel = viewModel { TransactionsViewModel(AppGraph.repository) },
 ) {
-    val days by viewModel.days.collectAsStateWithLifecycle()
+    val state by viewModel.days.collectAsStateWithLifecycle()
+    val days = state ?: return
     val colors = FinanceTheme.colors
+
+    if (days.isEmpty()) {
+        EmptyState("No transactions yet", "Load demo data in settings to see the app with real numbers.")
+        return
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
