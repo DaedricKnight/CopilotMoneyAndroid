@@ -3,7 +3,6 @@ package com.artemkhateev.finance.feature.auth
 import android.app.Activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.artemkhateev.finance.data.auth.AuthCancelledException
 import com.artemkhateev.finance.data.auth.AuthRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,8 +72,6 @@ class SignInViewModel(private val auth: AuthRepository) : ViewModel() {
                 mutableState.value.copy(password = "", info = successMessage)
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: AuthCancelledException) {
-                mutableState.value
             } catch (e: Exception) {
                 mutableState.value.copy(error = e.message ?: "Something went wrong")
             }

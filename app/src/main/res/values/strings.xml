@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Рабочее название. Финальное выбрать до публикации: см. README, «Название и дизайн». -->
-    <string name="app_name">Money</string>
+    <!-- Рабочее название, как у проекта в Firebase. Перед публикацией проверить: см. README, «Перед публикацией в стор». -->
+    <string name="app_name">Money Tracker</string>
 </resources>

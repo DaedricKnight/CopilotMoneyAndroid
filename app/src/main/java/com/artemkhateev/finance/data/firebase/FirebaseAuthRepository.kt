@@ -2,6 +2,7 @@ package com.artemkhateev.finance.data.firebase
 
 import android.app.Activity
 import android.content.Context
+import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -9,7 +10,6 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
-import com.artemkhateev.finance.data.auth.AuthCancelledException
 import com.artemkhateev.finance.data.auth.AuthException
 import com.artemkhateev.finance.data.auth.AuthRepository
 import com.artemkhateev.finance.data.auth.AuthUser
@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
+
+private const val TAG = "MoneyAuth"
 
 class FirebaseAuthRepository(
     private val context: Context,
@@ -87,8 +89,12 @@ class FirebaseAuthRepository(
     } catch (e: AuthException) {
         throw e
     } catch (e: GetCredentialCancellationException) {
-        throw AuthCancelledException()
+        // Ошибки настройки — например, SHA-1 не зарегистрирован в Firebase — Credential Manager
+        // тоже отдаёт как отмену. Если молча её проглотить, пользователь видит, что «ничего не происходит».
+        Log.w(TAG, "Google credential request cancelled: ${e.errorMessage}", e)
+        throw AuthException("Google sign-in didn't finish: ${e.errorMessage ?: "cancelled"}", e)
     } catch (e: Exception) {
+        Log.w(TAG, "Sign-in failed", e)
         throw AuthException(e.toUserMessage(), e)
     }
 }

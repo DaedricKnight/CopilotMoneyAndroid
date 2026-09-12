@@ -8,9 +8,6 @@ data class AuthUser(val uid: String, val email: String?, val displayName: String
 /** Ошибка входа с текстом, который можно показать пользователю. */
 class AuthException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-/** Пользователь сам закрыл окно выбора аккаунта — это не ошибка. */
-class AuthCancelledException : Exception()
-
 interface AuthRepository {
     /** Текущий пользователь; null — вход не выполнен. */
     val user: StateFlow<AuthUser?>
