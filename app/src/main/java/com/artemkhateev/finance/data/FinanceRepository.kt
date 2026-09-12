@@ -14,6 +14,8 @@ import java.time.LocalDate
 interface FinanceRepository {
     /** Категории по имени. */
     val categories: Flow<List<Category>>
+
+    /** Счета по имени. */
     val accounts: Flow<List<Account>>
 
     /** Транзакции начиная с [transactionsWindowStart], новые сверху. */
@@ -23,16 +25,38 @@ interface FinanceRepository {
     suspend fun markReviewed(transactionIds: Collection<String>)
     suspend fun setCategory(transactionId: String, categoryId: String?)
 
-    /** Пустой id — новая транзакция, id выдаст репозиторий; иначе транзакция перезаписывается. */
-    suspend fun saveTransaction(transaction: Transaction)
-    suspend fun deleteTransaction(transactionId: String)
+    /**
+     * Пустой id — новая транзакция, id выдаст репозиторий; иначе транзакция перезаписывается.
+     * Остатки счетов сдвигаются на разницу с [previous] — прежней версией правленой транзакции.
+     */
+    suspend fun saveTransaction(transaction: Transaction, previous: Transaction? = null)
+
+    /** Удаляет транзакцию и возвращает её сумму остатку счёта. */
+    suspend fun deleteTransaction(transaction: Transaction)
 
     /** Пустой id — новая категория, id выдаст репозиторий; иначе категория перезаписывается. */
     suspend fun saveCategory(category: Category)
 
     /** Транзакции удалённой категории остаются и показываются без категории. */
     suspend fun deleteCategory(categoryId: String)
+
+    /** Пустой id — новый счёт, id выдаст репозиторий; иначе счёт перезаписывается. */
+    suspend fun saveAccount(account: Account)
+
+    /** Транзакции удалённого счёта остаются, но на остатки и чистый капитал больше не влияют. */
+    suspend fun deleteAccount(accountId: String)
 }
 
 /** Экраны показывают прошлый и текущий месяц: более ранние транзакции не загружаются и не вводятся. */
 fun transactionsWindowStart(today: LocalDate): LocalDate = today.minusMonths(1).withDayOfMonth(1)
+
+/**
+ * Как сохранение или удаление транзакции сдвигает остатки: id счёта → сдвиг в центах.
+ * [saved] — новая версия (null при удалении), [previous] — прежняя (null для новой транзакции).
+ */
+fun balanceChanges(saved: Transaction?, previous: Transaction?): Map<String, Long> {
+    val changes = mutableMapOf<String, Long>()
+    previous?.let { changes[it.accountId] = (changes[it.accountId] ?: 0L) - it.amount.minor }
+    saved?.let { changes[it.accountId] = (changes[it.accountId] ?: 0L) + it.amount.minor }
+    return changes.filterValues { it != 0L }
+}

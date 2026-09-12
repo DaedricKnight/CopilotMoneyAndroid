@@ -65,11 +65,16 @@ class TransactionsViewModel(
     /** Открытая форма добавления или правки; null — форма закрыта. */
     val draft: StateFlow<TransactionDraft?> = mutableDraft.asStateFlow()
 
+    /** Транзакция в том виде, в каком её открыли на правку: от неё считается сдвиг остатков. */
+    private var editing: Transaction? = null
+
     fun startNew() {
+        editing = null
         mutableDraft.value = TransactionDraft(date = today(), accountId = state.value?.accounts?.firstOrNull()?.id)
     }
 
     fun startEdit(transaction: Transaction) {
+        editing = transaction
         mutableDraft.value = TransactionDraft.from(transaction)
     }
 
@@ -78,18 +83,20 @@ class TransactionsViewModel(
     }
 
     fun dismissDraft() {
+        editing = null
         mutableDraft.value = null
     }
 
     fun saveDraft() {
         val transaction = mutableDraft.value?.toTransaction() ?: return
-        mutableDraft.value = null
-        viewModelScope.launch { repository.saveTransaction(transaction) }
+        val previous = editing
+        dismissDraft()
+        viewModelScope.launch { repository.saveTransaction(transaction, previous) }
     }
 
     fun deleteDraft() {
-        val id = mutableDraft.value?.id?.takeIf { it.isNotBlank() } ?: return
-        mutableDraft.value = null
-        viewModelScope.launch { repository.deleteTransaction(id) }
+        val transaction = editing ?: return
+        dismissDraft()
+        viewModelScope.launch { repository.deleteTransaction(transaction) }
     }
 }

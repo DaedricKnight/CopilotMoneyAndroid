@@ -1,7 +1,9 @@
 package com.artemkhateev.finance.data.demo
 
 import com.artemkhateev.finance.data.FinanceRepository
+import com.artemkhateev.finance.data.balanceChanges
 import com.artemkhateev.finance.data.model.Account
+import com.artemkhateev.finance.data.model.AccountByName
 import com.artemkhateev.finance.data.model.AccountType
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryByName
@@ -11,6 +13,7 @@ import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.NewestFirst
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.newAccountId
 import com.artemkhateev.finance.data.model.newCategoryId
 import com.artemkhateev.finance.data.model.newTransactionId
 import com.artemkhateev.finance.data.transactionsWindowStart
@@ -26,10 +29,11 @@ import kotlin.random.Random
 class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceRepository {
 
     private val categoriesState = MutableStateFlow(DemoData.categories)
+    private val accountsState = MutableStateFlow(DemoData.accounts)
     private val transactionsState = MutableStateFlow(DemoData.transactions(today))
 
     override val categories: Flow<List<Category>> = categoriesState.map { it.sortedWith(CategoryByName) }
-    override val accounts: Flow<List<Account>> = MutableStateFlow(DemoData.accounts)
+    override val accounts: Flow<List<Account>> = accountsState.map { it.sortedWith(AccountByName) }
     override val transactions: Flow<List<Transaction>> = transactionsState
     override val recurrings: Flow<List<Recurring>> = MutableStateFlow(DemoData.recurrings)
 
@@ -46,13 +50,15 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
         }
     }
 
-    override suspend fun saveTransaction(transaction: Transaction) {
+    override suspend fun saveTransaction(transaction: Transaction, previous: Transaction?) {
         val saved = if (transaction.id.isBlank()) transaction.copy(id = newTransactionId()) else transaction
         transactionsState.update { list -> (list.filterNot { it.id == saved.id } + saved).sortedWith(NewestFirst) }
+        applyBalanceChanges(balanceChanges(saved, previous))
     }
 
-    override suspend fun deleteTransaction(transactionId: String) {
-        transactionsState.update { list -> list.filterNot { it.id == transactionId } }
+    override suspend fun deleteTransaction(transaction: Transaction) {
+        transactionsState.update { list -> list.filterNot { it.id == transaction.id } }
+        applyBalanceChanges(balanceChanges(saved = null, previous = transaction))
     }
 
     override suspend fun saveCategory(category: Category) {
@@ -62,6 +68,22 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
 
     override suspend fun deleteCategory(categoryId: String) {
         categoriesState.update { list -> list.filterNot { it.id == categoryId } }
+    }
+
+    override suspend fun saveAccount(account: Account) {
+        val saved = if (account.id.isBlank()) account.copy(id = newAccountId()) else account
+        accountsState.update { list -> list.filterNot { it.id == saved.id } + saved }
+    }
+
+    override suspend fun deleteAccount(accountId: String) {
+        accountsState.update { list -> list.filterNot { it.id == accountId } }
+    }
+
+    private fun applyBalanceChanges(changes: Map<String, Long>) {
+        if (changes.isEmpty()) return
+        accountsState.update { list ->
+            list.map { account -> changes[account.id]?.let { account.copy(balance = account.balance + Money(it)) } ?: account }
+        }
     }
 }
 

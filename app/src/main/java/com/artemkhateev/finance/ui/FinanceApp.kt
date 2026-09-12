@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.artemkhateev.finance.R
 import com.artemkhateev.finance.data.AppGraph
+import com.artemkhateev.finance.feature.accounts.AccountsScreen
 import com.artemkhateev.finance.feature.auth.SignInScreen
 import com.artemkhateev.finance.feature.cashflow.CashFlowScreen
 import com.artemkhateev.finance.feature.categories.CategoriesScreen
@@ -79,6 +80,7 @@ private fun HomeScreen() {
         HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
             when (val tab = tabs[page]) {
                 AppTab.CashFlow -> CashFlowScreen()
+                AppTab.Accounts -> AccountsScreen()
                 AppTab.Dashboard -> DashboardScreen()
                 AppTab.Transactions -> TransactionsScreen()
                 AppTab.Categories -> CategoriesScreen()

@@ -4,6 +4,7 @@ import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryByName
 import com.artemkhateev.finance.data.model.CategoryTone
 import com.artemkhateev.finance.data.model.Money
+import com.artemkhateev.finance.data.model.Transaction
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -13,7 +14,10 @@ import java.time.LocalDate
 
 class DemoFinanceRepositoryTest {
 
-    private val repository = DemoFinanceRepository(LocalDate.of(2026, 9, 12))
+    private val today = LocalDate.of(2026, 9, 12)
+    private val repository = DemoFinanceRepository(today)
+
+    private suspend fun balanceOf(accountId: String) = repository.accounts.first().single { it.id == accountId }.balance
 
     @Test
     fun `new category gets an id and categories stay in name order`() = runBlocking {
@@ -39,5 +43,36 @@ class DemoFinanceRepositoryTest {
 
         assertTrue(repository.categories.first().none { it.id == "coffee" })
         assertEquals(coffeeTransactions, repository.transactions.first().count { it.categoryId == "coffee" })
+    }
+
+    @Test
+    fun `adding an expense lowers the account balance`() = runBlocking {
+        val before = balanceOf("checking")
+        repository.saveTransaction(Transaction("", "checking", "Bakery", Money(-1_250), today, null, reviewed = true))
+
+        assertEquals(before - Money(1_250), balanceOf("checking"))
+    }
+
+    @Test
+    fun `moving a transaction to another account moves its amount`() = runBlocking {
+        val saved = Transaction("t-move", "checking", "Bakery", Money(-1_000), today, null)
+        repository.saveTransaction(saved)
+        val checkingBefore = balanceOf("checking")
+        val cardBefore = balanceOf("card")
+
+        repository.saveTransaction(saved.copy(accountId = "card"), previous = saved)
+
+        assertEquals(checkingBefore + Money(1_000), balanceOf("checking"))
+        assertEquals(cardBefore - Money(1_000), balanceOf("card"))
+    }
+
+    @Test
+    fun `deleting a transaction gives its amount back`() = runBlocking {
+        val before = balanceOf("card")
+        val saved = Transaction("t-delete", "card", "Bakery", Money(-500), today, null)
+        repository.saveTransaction(saved)
+        repository.deleteTransaction(saved)
+
+        assertEquals(before, balanceOf("card"))
     }
 }

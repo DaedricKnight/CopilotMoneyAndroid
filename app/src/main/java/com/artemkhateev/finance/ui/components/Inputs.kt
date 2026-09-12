@@ -49,7 +49,7 @@ fun FieldLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** Однострочное поле без рамки с текстом по центру: мерчант, заметка, название и эмодзи категории. */
+/** Однострочное поле без рамки с текстом по центру: мерчант, заметка, названия, эмодзи. */
 @Composable
 fun CenteredTextField(
     value: String,
@@ -59,6 +59,7 @@ fun CenteredTextField(
     modifier: Modifier = Modifier,
     imeAction: ImeAction = ImeAction.Next,
     capitalization: KeyboardCapitalization = KeyboardCapitalization.Sentences,
+    keyboardType: KeyboardType = KeyboardType.Text,
     // Цветной эмодзи не красится цветом текста — подсказку-эмодзи приглушает прозрачность.
     placeholderAlpha: Float = 1f,
 ) {
@@ -69,7 +70,11 @@ fun CenteredTextField(
         textStyle = style.copy(textAlign = TextAlign.Center),
         singleLine = true,
         cursorBrush = SolidColor(colors.accent),
-        keyboardOptions = KeyboardOptions(capitalization = capitalization, imeAction = imeAction),
+        keyboardOptions = KeyboardOptions(
+            capitalization = capitalization,
+            keyboardType = keyboardType,
+            imeAction = imeAction,
+        ),
         modifier = modifier.fillMaxWidth(),
         decorationBox = { innerTextField ->
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {

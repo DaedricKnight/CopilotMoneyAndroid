@@ -48,6 +48,10 @@ fun newCategoryId(nowMillis: Long = System.currentTimeMillis()): String =
 
 enum class AccountType { Checking, Savings, CreditCard, Investment }
 
+/**
+ * Остаток со знаком: у активов положительный, долг по кредитной карте — отрицательный.
+ * Ручные транзакции сдвигают его сами, см. [balanceChanges][com.artemkhateev.finance.data.balanceChanges].
+ */
 data class Account(
     val id: String,
     val name: String,
@@ -57,6 +61,11 @@ data class Account(
     /** Последние цифры номера, как их показывает банк. */
     val mask: String? = null,
 )
+
+val AccountByName: Comparator<Account> = compareBy<Account, String>(String.CASE_INSENSITIVE_ORDER) { it.name }
+
+fun newAccountId(nowMillis: Long = System.currentTimeMillis()): String =
+    "a-$nowMillis-${UUID.randomUUID().toString().take(8)}"
 
 /**
  * Знак суммы: расход отрицательный, поступление положительное.

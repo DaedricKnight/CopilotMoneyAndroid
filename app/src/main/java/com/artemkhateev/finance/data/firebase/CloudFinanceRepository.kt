@@ -3,8 +3,10 @@ package com.artemkhateev.finance.data.firebase
 import android.util.Log
 import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.auth.AuthRepository
+import com.artemkhateev.finance.data.balanceChanges
 import com.artemkhateev.finance.data.demo.DemoData
 import com.artemkhateev.finance.data.model.Account
+import com.artemkhateev.finance.data.model.AccountByName
 import com.artemkhateev.finance.data.model.AccountType
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryByName
@@ -12,6 +14,7 @@ import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.NewestFirst
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.newAccountId
 import com.artemkhateev.finance.data.model.newCategoryId
 import com.artemkhateev.finance.data.model.newTransactionId
 import com.artemkhateev.finance.data.transactionsWindowStart
@@ -56,11 +59,12 @@ class CloudFinanceRepository(
         }
     }
 
-    // Firestore отдаёт документы по id, а экраны показывают категории по имени.
+    // Firestore отдаёт документы по id, а экраны показывают категории и счета по имени.
     override val categories: Flow<List<Category>> =
         perUser({ it.collection(CATEGORIES) }, ::categoryFrom).map { it.sortedWith(CategoryByName) }
 
-    override val accounts: Flow<List<Account>> = perUser({ it.collection(ACCOUNTS) }, ::accountFrom)
+    override val accounts: Flow<List<Account>> =
+        perUser({ it.collection(ACCOUNTS) }, ::accountFrom).map { it.sortedWith(AccountByName) }
 
     // Более старые документы не читаем, чтобы не тратить квоту: экраны их всё равно не показывают.
     override val transactions: Flow<List<Transaction>> = perUser(
@@ -87,17 +91,19 @@ class CloudFinanceRepository(
             .addOnFailureListener { Log.w(TAG, "setCategory failed", it) }
     }
 
-    override suspend fun saveTransaction(transaction: Transaction) {
+    override suspend fun saveTransaction(transaction: Transaction, previous: Transaction?) {
         val user = currentUserDoc() ?: return
         val saved = if (transaction.id.isBlank()) transaction.copy(id = newTransactionId()) else transaction
         user.collection(TRANSACTIONS).document(saved.id).set(saved.toMap())
             .addOnFailureListener { Log.w(TAG, "saveTransaction failed", it) }
+        adjustBalances(user, balanceChanges(saved, previous))
     }
 
-    override suspend fun deleteTransaction(transactionId: String) {
+    override suspend fun deleteTransaction(transaction: Transaction) {
         val user = currentUserDoc() ?: return
-        user.collection(TRANSACTIONS).document(transactionId).delete()
+        user.collection(TRANSACTIONS).document(transaction.id).delete()
             .addOnFailureListener { Log.w(TAG, "deleteTransaction failed", it) }
+        adjustBalances(user, balanceChanges(saved = null, previous = transaction))
     }
 
     override suspend fun saveCategory(category: Category) {
@@ -113,6 +119,19 @@ class CloudFinanceRepository(
             .addOnFailureListener { Log.w(TAG, "deleteCategory failed", it) }
     }
 
+    override suspend fun saveAccount(account: Account) {
+        val user = currentUserDoc() ?: return
+        val saved = if (account.id.isBlank()) account.copy(id = newAccountId()) else account
+        user.collection(ACCOUNTS).document(saved.id).set(saved.toMap())
+            .addOnFailureListener { Log.w(TAG, "saveAccount failed", it) }
+    }
+
+    override suspend fun deleteAccount(accountId: String) {
+        val user = currentUserDoc() ?: return
+        user.collection(ACCOUNTS).document(accountId).delete()
+            .addOnFailureListener { Log.w(TAG, "deleteAccount failed", it) }
+    }
+
     /** Заливает демо-данные. Идентификаторы постоянные: повторный вызов перезаписывает те же документы. */
     suspend fun importDemoData() {
         val user = currentUserDoc() ?: return
@@ -124,6 +143,17 @@ class CloudFinanceRepository(
             batch.set(user.collection(TRANSACTIONS).document(it.id), it.toMap())
         }
         batch.commit().await()
+    }
+
+    /**
+     * Атомарный increment отдельной записью, а не в одной пачке с транзакцией: если счёт уже удалён,
+     * падает только сдвиг остатка, а сама транзакция сохраняется.
+     */
+    private fun adjustBalances(user: DocumentReference, changes: Map<String, Long>) {
+        changes.forEach { (accountId, delta) ->
+            user.collection(ACCOUNTS).document(accountId).update("balance", FieldValue.increment(delta))
+                .addOnFailureListener { Log.w(TAG, "Balance of $accountId not adjusted", it) }
+        }
     }
 
     /** Новому пользователю — стартовые категории с бюджетами и счёт наличных. */
