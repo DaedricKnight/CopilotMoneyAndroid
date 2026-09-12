@@ -16,47 +16,54 @@ data class CategoryBudgetUi(
     val ratio: Float,
 )
 
-data class CategorySpendUi(val category: Category, val spent: Money)
+/** Категория вне карточки бюджетов с суммой за месяц: потрачено для расходов, получено для доходов. */
+data class CategoryAmountUi(val category: Category, val amount: Money)
 
 data class CategoriesUiState(
     /** Сумма бюджетов минус расходы по ним; отрицательная — перерасход. */
     val totalLeft: Money,
-    /** Категории с бюджетом в пользовательском порядке. */
     val budgets: List<CategoryBudgetUi>,
-    /** Категории без бюджета, где в этом месяце были расходы. */
-    val unbudgeted: List<CategorySpendUi>,
+    /** Все остальные категории — расходы без бюджета и доходы, — чтобы до любой можно было дотянуться. */
+    val others: List<CategoryAmountUi>,
 )
 
 data class CategoryDetailUi(
     val category: Category,
-    val spent: Money,
+    /** Потрачено за месяц для расходной категории, получено — для доходной. */
+    val amount: Money,
     val budget: Money?,
     /** Транзакции категории за этот месяц, новые сверху. */
     val transactions: List<Transaction>,
 )
 
 fun buildCategories(today: LocalDate, categories: List<Category>, transactions: List<Transaction>): CategoriesUiState {
-    val spentByCategory = monthExpenses(today, transactions)
+    val thisMonth = monthTransactions(today, transactions)
+    val spentByCategory = thisMonth.filter { it.amount.minor < 0 }
         .groupBy { it.categoryId }
         .mapValues { (_, list) -> -list.sumOf { it.amount.minor } }
-    val expenseCategories = categories.filter { it.kind == CategoryKind.Expense }
+    val receivedByCategory = thisMonth.filter { it.amount.minor > 0 }
+        .groupBy { it.categoryId }
+        .mapValues { (_, list) -> list.sumOf { it.amount.minor } }
 
-    val budgets = expenseCategories
-        .filter { (it.monthlyBudget?.minor ?: 0L) > 0L }
+    val budgets = categories
+        .filter { it.kind == CategoryKind.Expense && (it.monthlyBudget?.minor ?: 0L) > 0L }
         .map { category ->
             val budget = category.monthlyBudget!!
             val spent = Money(spentByCategory[category.id] ?: 0L)
             CategoryBudgetUi(category, spent, budget, spent.minor.toFloat() / budget.minor)
         }
-    val unbudgeted = expenseCategories
-        .filter { (it.monthlyBudget?.minor ?: 0L) <= 0L }
-        .mapNotNull { category -> spentByCategory[category.id]?.let { CategorySpendUi(category, Money(it)) } }
-        .sortedByDescending { it.spent.minor }
+    val budgetedIds = budgets.map { it.category.id }.toSet()
+    val others = categories
+        .filterNot { it.id in budgetedIds }
+        .map { category ->
+            val byCategory = if (category.kind == CategoryKind.Income) receivedByCategory else spentByCategory
+            CategoryAmountUi(category, Money(byCategory[category.id] ?: 0L))
+        }
 
     return CategoriesUiState(
         totalLeft = budgets.sumOfMoney { it.budget } - budgets.sumOfMoney { it.spent },
         budgets = budgets,
-        unbudgeted = unbudgeted,
+        others = others,
     )
 }
 
@@ -67,19 +74,21 @@ fun buildCategoryDetail(
     transactions: List<Transaction>,
 ): CategoryDetailUi? {
     val category = categories.firstOrNull { it.id == categoryId } ?: return null
-    val monthStart = today.withDayOfMonth(1)
-    val thisMonth = transactions
-        .filter { it.categoryId == categoryId && !it.date.isBefore(monthStart) && !it.date.isAfter(today) }
-        .sortedWith(NewestFirst)
+    val ofCategory = monthTransactions(today, transactions).filter { it.categoryId == categoryId }.sortedWith(NewestFirst)
+    val amount = if (category.kind == CategoryKind.Income) {
+        ofCategory.filter { it.amount.minor > 0 }.sumOf { it.amount.minor }
+    } else {
+        -ofCategory.filter { it.amount.minor < 0 }.sumOf { it.amount.minor }
+    }
     return CategoryDetailUi(
         category = category,
-        spent = Money(-thisMonth.filter { it.amount.minor < 0 }.sumOf { it.amount.minor }),
-        budget = category.monthlyBudget?.takeIf { it.minor > 0 },
-        transactions = thisMonth,
+        amount = Money(amount),
+        budget = category.monthlyBudget?.takeIf { it.minor > 0 && category.kind == CategoryKind.Expense },
+        transactions = ofCategory,
     )
 }
 
-private fun monthExpenses(today: LocalDate, transactions: List<Transaction>): List<Transaction> {
+private fun monthTransactions(today: LocalDate, transactions: List<Transaction>): List<Transaction> {
     val monthStart = today.withDayOfMonth(1)
-    return transactions.filter { it.amount.minor < 0 && !it.date.isBefore(monthStart) && !it.date.isAfter(today) }
+    return transactions.filter { !it.date.isBefore(monthStart) && !it.date.isAfter(today) }
 }

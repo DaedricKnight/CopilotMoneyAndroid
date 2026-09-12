@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -46,10 +47,13 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.artemkhateev.finance.data.AppGraph
 import com.artemkhateev.finance.data.FinanceRepository
+import com.artemkhateev.finance.data.model.Category
+import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.ui.components.CategoryChip
 import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.FinanceCard
 import com.artemkhateev.finance.ui.components.MoneyText
+import com.artemkhateev.finance.ui.components.RoundAddButton
 import com.artemkhateev.finance.ui.components.SectionHeader
 import com.artemkhateev.finance.ui.components.SegmentedControl
 import com.artemkhateev.finance.ui.components.appendMoney
@@ -61,13 +65,16 @@ import com.artemkhateev.finance.ui.theme.color
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import kotlin.math.roundToInt
 
 class CategoriesViewModel(
-    repository: FinanceRepository,
+    private val repository: FinanceRepository,
     today: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
 
@@ -77,6 +84,10 @@ class CategoriesViewModel(
             buildCategories(today(), categories, transactions)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** Все категории: по ним форма проверяет, не занято ли имя. */
+    val allCategories: StateFlow<List<Category>> =
+        repository.categories.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val selectedId = MutableStateFlow<String?>(null)
 
     /** Открытая карточка категории; null — закрыта. */
@@ -85,12 +96,48 @@ class CategoriesViewModel(
             id?.let { buildCategoryDetail(today(), it, categories, transactions) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    private val mutableDraft = MutableStateFlow<CategoryDraft?>(null)
+
+    /** Открытая форма категории; null — закрыта. */
+    val draft: StateFlow<CategoryDraft?> = mutableDraft.asStateFlow()
+
     fun open(categoryId: String) {
         selectedId.value = categoryId
     }
 
     fun close() {
         selectedId.value = null
+    }
+
+    fun startNew() {
+        mutableDraft.value = CategoryDraft()
+    }
+
+    fun startEdit(category: Category) {
+        // Две шторки сразу не показываем: карточка закрывается, открывается форма.
+        selectedId.value = null
+        mutableDraft.value = CategoryDraft.from(category)
+    }
+
+    fun updateDraft(change: (CategoryDraft) -> CategoryDraft) {
+        mutableDraft.update { it?.let(change) }
+    }
+
+    fun dismissDraft() {
+        mutableDraft.value = null
+    }
+
+    fun saveDraft() {
+        val draft = mutableDraft.value ?: return
+        if (draft.problem(allCategories.value) != null) return
+        mutableDraft.value = null
+        viewModelScope.launch { repository.saveCategory(draft.toCategory()) }
+    }
+
+    fun deleteDraft() {
+        val id = mutableDraft.value?.id?.takeIf { it.isNotBlank() } ?: return
+        mutableDraft.value = null
+        viewModelScope.launch { repository.deleteCategory(id) }
     }
 }
 
@@ -100,48 +147,90 @@ fun CategoriesScreen(
 ) {
     val loaded by viewModel.state.collectAsStateWithLifecycle()
     val detail by viewModel.detail.collectAsStateWithLifecycle()
+    val draft by viewModel.draft.collectAsStateWithLifecycle()
+    val allCategories by viewModel.allCategories.collectAsStateWithLifecycle()
     val state = loaded ?: return
     val colors = FinanceTheme.colors
     var showPercent by rememberSaveable { mutableStateOf(false) }
 
-    if (state.budgets.isEmpty() && state.unbudgeted.isEmpty()) {
-        EmptyState("No categories yet", "Categories with budgets will show up here.")
-    } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = screenContentPadding(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (state.budgets.isNotEmpty()) {
-                item(key = "budgets") {
-                    BudgetsCard(state, showPercent, onShowPercent = { showPercent = it }, onOpen = viewModel::open)
+    Box(Modifier.fillMaxSize()) {
+        if (state.budgets.isEmpty() && state.others.isEmpty()) {
+            EmptyState("No categories yet", "Tap + to create one.")
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                // Запас снизу, чтобы последнюю строку не закрывала кнопка «+».
+                contentPadding = screenContentPadding(extraBottom = 72.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (state.budgets.isNotEmpty()) {
+                    item(key = "budgets") {
+                        BudgetsCard(state, showPercent, onShowPercent = { showPercent = it }, onOpen = viewModel::open)
+                    }
                 }
-            }
-            if (state.unbudgeted.isNotEmpty()) {
-                item(key = "unbudgeted-header") { SectionHeader("Without budget") }
-                item(key = "unbudgeted") {
-                    FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
-                        state.unbudgeted.forEachIndexed { index, row ->
-                            if (index > 0) HorizontalDivider(color = colors.border)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { viewModel.open(row.category.id) }
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                CategoryChip(row.category)
-                                Spacer(Modifier.weight(1f))
-                                MoneyText(row.spent)
+                if (state.others.isNotEmpty()) {
+                    item(key = "others-header") {
+                        SectionHeader(if (state.budgets.isEmpty()) "Categories" else "Other categories")
+                    }
+                    item(key = "others") {
+                        FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
+                            state.others.forEachIndexed { index, row ->
+                                if (index > 0) HorizontalDivider(color = colors.border)
+                                OtherCategoryRow(row, onClick = { viewModel.open(row.category.id) })
                             }
                         }
                     }
                 }
             }
         }
+        RoundAddButton(
+            contentDescription = "Add category",
+            onClick = viewModel::startNew,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(20.dp),
+        )
     }
 
-    detail?.let { CategoryDetailSheet(it, onDismiss = viewModel::close) }
+    detail?.let { current ->
+        CategoryDetailSheet(current, onEdit = { viewModel.startEdit(current.category) }, onDismiss = viewModel::close)
+    }
+    draft?.let { current ->
+        CategoryEditorSheet(
+            draft = current,
+            existing = allCategories,
+            onChange = viewModel::updateDraft,
+            onSave = viewModel::saveDraft,
+            onDelete = viewModel::deleteDraft,
+            onDismiss = viewModel::dismissDraft,
+        )
+    }
+}
+
+@Composable
+private fun OtherCategoryRow(row: CategoryAmountUi, onClick: () -> Unit) {
+    val colors = FinanceTheme.colors
+    val income = row.category.kind == CategoryKind.Income
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CategoryChip(row.category)
+        Spacer(Modifier.weight(1f))
+        MoneyText(
+            amount = row.amount,
+            color = when {
+                row.amount.minor == 0L -> colors.textSecondary
+                income -> colors.positiveText
+                else -> colors.textPrimary
+            },
+            sign = if (income && row.amount.minor > 0) SignStyle.Always else SignStyle.None,
+        )
+    }
 }
 
 private val DeltaColumnWidth = 76.dp
@@ -182,7 +271,6 @@ private fun BudgetsCard(
             color = colors.textSecondary,
         )
         Spacer(Modifier.height(16.dp))
-
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -284,10 +372,11 @@ private fun BudgetBarRow(item: CategoryBudgetUi, showPercent: Boolean, onClick: 
 /** Карточка категории, как в референсе: эмодзи, название в цвете категории, сумма и транзакции месяца. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CategoryDetailSheet(detail: CategoryDetailUi, onDismiss: () -> Unit) {
+private fun CategoryDetailSheet(detail: CategoryDetailUi, onEdit: () -> Unit, onDismiss: () -> Unit) {
     val colors = FinanceTheme.colors
     val typography = FinanceTheme.typography
     val tone = detail.category.tone.color()
+    val income = detail.category.kind == CategoryKind.Income
     val today = remember { LocalDate.now() }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.surface) {
@@ -298,29 +387,53 @@ private fun CategoryDetailSheet(detail: CategoryDetailUi, onDismiss: () -> Unit)
                 .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("CATEGORY", style = typography.sectionLabel, color = colors.sectionLabel)
+            Box(Modifier.fillMaxWidth()) {
+                Text(
+                    text = "CATEGORY",
+                    style = typography.sectionLabel,
+                    color = colors.sectionLabel,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                Text(
+                    text = "Edit",
+                    style = typography.bodySecondary,
+                    color = colors.accent,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .clip(CircleShape)
+                        .clickable(onClick = onEdit)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
             Spacer(Modifier.height(14.dp))
             Text(detail.category.emoji, fontSize = 34.sp)
             Spacer(Modifier.height(6.dp))
             Text(detail.category.name, style = typography.heroAmount, color = tone)
             Spacer(Modifier.height(12.dp))
-            MoneyText(detail.spent, style = typography.heroAmount.copy(fontSize = 30.sp), cents = false)
+            MoneyText(
+                amount = detail.amount,
+                style = typography.heroAmount.copy(fontSize = 30.sp),
+                color = if (income) colors.positiveText else colors.textPrimary,
+                cents = false,
+            )
             val budget = detail.budget
             Text(
-                text = if (budget == null) {
-                    buildAnnotatedString { append("spent this month") }
-                } else {
-                    buildAnnotatedString {
-                        append("spent of ")
-                        appendMoney(budget, typography.bodySecondary.fontSize, cents = false)
-                        append(" budget")
+                text = buildAnnotatedString {
+                    when {
+                        income -> append("received this month")
+                        budget == null -> append("spent this month")
+                        else -> {
+                            append("spent of ")
+                            appendMoney(budget, typography.bodySecondary.fontSize, cents = false)
+                            append(" budget")
+                        }
                     }
                 },
                 style = typography.bodySecondary,
                 color = colors.textSecondary,
             )
             if (budget != null) {
-                val ratio = detail.spent.minor.toFloat() / budget.minor
+                val ratio = detail.amount.minor.toFloat() / budget.minor
                 Spacer(Modifier.height(12.dp))
                 Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(colors.track)) {
                     Box(
@@ -355,11 +468,11 @@ private fun CategoryDetailSheet(detail: CategoryDetailUi, onDismiss: () -> Unit)
                                 )
                                 Text(dayLabel(transaction.date, today), style = typography.caption, color = colors.textSecondary)
                             }
-                            val income = transaction.amount.minor > 0
+                            val positive = transaction.amount.minor > 0
                             MoneyText(
-                                amount = if (income) transaction.amount else transaction.amount.abs(),
-                                color = if (income) colors.positiveText else colors.textPrimary,
-                                sign = if (income) SignStyle.Always else SignStyle.None,
+                                amount = if (positive) transaction.amount else transaction.amount.abs(),
+                                color = if (positive) colors.positiveText else colors.textPrimary,
+                                sign = if (positive) SignStyle.Always else SignStyle.None,
                             )
                         }
                     }

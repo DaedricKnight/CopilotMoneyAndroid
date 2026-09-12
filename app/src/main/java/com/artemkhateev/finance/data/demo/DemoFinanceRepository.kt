@@ -4,16 +4,19 @@ import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.AccountType
 import com.artemkhateev.finance.data.model.Category
+import com.artemkhateev.finance.data.model.CategoryByName
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.CategoryTone
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.NewestFirst
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.newCategoryId
 import com.artemkhateev.finance.data.model.newTransactionId
 import com.artemkhateev.finance.data.transactionsWindowStart
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -22,9 +25,10 @@ import kotlin.random.Random
 /** Данные в памяти для разработки интерфейса: живут до перезапуска приложения. */
 class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceRepository {
 
+    private val categoriesState = MutableStateFlow(DemoData.categories)
     private val transactionsState = MutableStateFlow(DemoData.transactions(today))
 
-    override val categories: Flow<List<Category>> = MutableStateFlow(DemoData.categories)
+    override val categories: Flow<List<Category>> = categoriesState.map { it.sortedWith(CategoryByName) }
     override val accounts: Flow<List<Account>> = MutableStateFlow(DemoData.accounts)
     override val transactions: Flow<List<Transaction>> = transactionsState
     override val recurrings: Flow<List<Recurring>> = MutableStateFlow(DemoData.recurrings)
@@ -49,6 +53,15 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
 
     override suspend fun deleteTransaction(transactionId: String) {
         transactionsState.update { list -> list.filterNot { it.id == transactionId } }
+    }
+
+    override suspend fun saveCategory(category: Category) {
+        val saved = if (category.id.isBlank()) category.copy(id = newCategoryId()) else category
+        categoriesState.update { list -> list.filterNot { it.id == saved.id } + saved }
+    }
+
+    override suspend fun deleteCategory(categoryId: String) {
+        categoriesState.update { list -> list.filterNot { it.id == categoryId } }
     }
 }
 

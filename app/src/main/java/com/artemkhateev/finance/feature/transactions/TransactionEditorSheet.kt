@@ -3,7 +3,6 @@ package com.artemkhateev.finance.feature.transactions
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,8 +12,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -37,20 +34,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artemkhateev.finance.data.model.Account
@@ -58,21 +42,19 @@ import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.transactionsWindowStart
 import com.artemkhateev.finance.ui.components.CategoryChip
+import com.artemkhateev.finance.ui.components.CenteredTextField
+import com.artemkhateev.finance.ui.components.FieldLabel
+import com.artemkhateev.finance.ui.components.MoneyInputField
 import com.artemkhateev.finance.ui.components.PillButton
 import com.artemkhateev.finance.ui.components.SegmentedControl
 import com.artemkhateev.finance.ui.components.SelectablePill
-import com.artemkhateev.finance.ui.components.currencySymbolStyle
-import com.artemkhateev.finance.ui.format.MoneyFormatter
+import com.artemkhateev.finance.ui.format.shortDate
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-private val shortDate = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
 /** Шторка добавления и правки транзакции: крупная сумма, мерчант и заметка — как в карточке транзакции референса. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -137,19 +119,23 @@ fun TransactionEditorSheet(
                     if (kind != draft.kind) onChange { it.copy(kind = kind, categoryId = null) }
                 },
             )
-            AmountField(
+            MoneyInputField(
                 text = draft.amountText,
-                kind = draft.kind,
-                onValueChange = { text -> onChange { it.copy(amountText = sanitizeAmountInput(text)) } },
+                onValueChange = { text -> onChange { it.copy(amountText = text) } },
+                textStyle = typography.heroAmount.copy(
+                    fontSize = 40.sp,
+                    color = if (draft.kind == EntryKind.Income) colors.positiveText else colors.textPrimary,
+                ),
+                sign = if (draft.kind == EntryKind.Income) "+" else "-",
                 modifier = Modifier.focusRequester(amountFocus),
             )
-            CenteredField(
+            CenteredTextField(
                 value = draft.merchant,
                 placeholder = "Merchant",
                 style = typography.cardTitle.copy(fontSize = 22.sp, color = colors.textPrimary),
                 onValueChange = { value -> onChange { it.copy(merchant = value) } },
             )
-            CenteredField(
+            CenteredTextField(
                 value = draft.note,
                 placeholder = "Add a note",
                 style = typography.bodySecondary.copy(color = colors.textSecondary),
@@ -191,7 +177,7 @@ fun TransactionEditorSheet(
                 SelectablePill("Today", draft.date == today, onClick = { onChange { it.copy(date = today) } })
                 SelectablePill("Yesterday", draft.date == yesterday, onClick = { onChange { it.copy(date = yesterday) } })
                 SelectablePill(
-                    text = if (otherDate) draft.date.format(shortDate) else "Other date…",
+                    text = if (otherDate) shortDate(draft.date) else "Other date…",
                     selected = otherDate,
                     onClick = { pickingDate = true },
                 )
@@ -236,106 +222,6 @@ fun TransactionEditorSheet(
             onDismiss = { pickingDate = false },
         )
     }
-}
-
-@Composable
-private fun AmountField(
-    text: String,
-    kind: EntryKind,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = FinanceTheme.colors
-    val style = FinanceTheme.typography.heroAmount.copy(
-        fontSize = 40.sp,
-        color = if (kind == EntryKind.Income) colors.positiveText else colors.textPrimary,
-        textAlign = TextAlign.Center,
-    )
-    val transformation = remember(kind, style.fontSize, colors.textInactive) {
-        AmountTransformation(
-            sign = if (kind == EntryKind.Income) "+" else "-",
-            symbolStyle = currencySymbolStyle(style.fontSize),
-            placeholderColor = colors.textInactive,
-        )
-    }
-    BasicTextField(
-        value = text,
-        onValueChange = onValueChange,
-        textStyle = style,
-        singleLine = true,
-        cursorBrush = SolidColor(colors.accent),
-        visualTransformation = transformation,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
-        modifier = modifier.fillMaxWidth(),
-    )
-}
-
-/**
- * Знак, символ валюты и подсказка «0.00» рисуются внутри поля, а не рядом с ним:
- * однострочное поле занимает всю ширину, и только так сумма остаётся по центру.
- */
-private class AmountTransformation(
-    private val sign: String,
-    private val symbolStyle: SpanStyle,
-    private val placeholderColor: Color,
-) : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText {
-        val prefix = buildAnnotatedString {
-            append(sign)
-            withStyle(symbolStyle) { append(MoneyFormatter.CURRENCY_SYMBOL) }
-        }
-        val body = if (text.isEmpty()) AnnotatedString("0.00", SpanStyle(color = placeholderColor)) else text
-        val originalLength = text.length
-        return TransformedText(
-            prefix + body,
-            object : OffsetMapping {
-                override fun originalToTransformed(offset: Int) = offset + prefix.length
-                override fun transformedToOriginal(offset: Int) = (offset - prefix.length).coerceIn(0, originalLength)
-            },
-        )
-    }
-}
-
-@Composable
-private fun CenteredField(
-    value: String,
-    placeholder: String,
-    style: TextStyle,
-    onValueChange: (String) -> Unit,
-    imeAction: ImeAction = ImeAction.Next,
-) {
-    val colors = FinanceTheme.colors
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        textStyle = style.copy(textAlign = TextAlign.Center),
-        singleLine = true,
-        cursorBrush = SolidColor(colors.accent),
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = imeAction),
-        modifier = Modifier.fillMaxWidth(),
-        decorationBox = { innerTextField ->
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                if (value.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        style = style.copy(color = colors.textInactive, textAlign = TextAlign.Center),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                innerTextField()
-            }
-        },
-    )
-}
-
-@Composable
-private fun FieldLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = FinanceTheme.typography.sectionLabel,
-        color = FinanceTheme.colors.sectionLabel,
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

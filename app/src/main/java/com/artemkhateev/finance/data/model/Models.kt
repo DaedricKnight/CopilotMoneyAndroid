@@ -40,6 +40,12 @@ data class Category(
     val monthlyBudget: Money? = null,
 )
 
+/** Категории показываются по имени: своего порядка пользователь пока задать не может. */
+val CategoryByName: Comparator<Category> = compareBy<Category, String>(String.CASE_INSENSITIVE_ORDER) { it.name }
+
+fun newCategoryId(nowMillis: Long = System.currentTimeMillis()): String =
+    "c-$nowMillis-${UUID.randomUUID().toString().take(8)}"
+
 enum class AccountType { Checking, Savings, CreditCard, Investment }
 
 data class Account(

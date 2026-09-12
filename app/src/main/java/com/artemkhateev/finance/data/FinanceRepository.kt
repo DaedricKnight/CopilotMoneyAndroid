@@ -12,6 +12,7 @@ import java.time.LocalDate
  * Экраны не знают, какая реализация за ним стоит.
  */
 interface FinanceRepository {
+    /** Категории по имени. */
     val categories: Flow<List<Category>>
     val accounts: Flow<List<Account>>
 
@@ -25,6 +26,12 @@ interface FinanceRepository {
     /** Пустой id — новая транзакция, id выдаст репозиторий; иначе транзакция перезаписывается. */
     suspend fun saveTransaction(transaction: Transaction)
     suspend fun deleteTransaction(transactionId: String)
+
+    /** Пустой id — новая категория, id выдаст репозиторий; иначе категория перезаписывается. */
+    suspend fun saveCategory(category: Category)
+
+    /** Транзакции удалённой категории остаются и показываются без категории. */
+    suspend fun deleteCategory(categoryId: String)
 }
 
 /** Экраны показывают прошлый и текущий месяц: более ранние транзакции не загружаются и не вводятся. */

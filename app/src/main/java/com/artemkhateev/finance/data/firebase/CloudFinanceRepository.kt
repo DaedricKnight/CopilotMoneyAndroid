@@ -7,10 +7,12 @@ import com.artemkhateev.finance.data.demo.DemoData
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.AccountType
 import com.artemkhateev.finance.data.model.Category
+import com.artemkhateev.finance.data.model.CategoryByName
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.NewestFirst
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.newCategoryId
 import com.artemkhateev.finance.data.model.newTransactionId
 import com.artemkhateev.finance.data.transactionsWindowStart
 import com.google.firebase.firestore.DocumentReference
@@ -54,7 +56,9 @@ class CloudFinanceRepository(
         }
     }
 
-    override val categories: Flow<List<Category>> = perUser({ it.collection(CATEGORIES) }, ::categoryFrom)
+    // Firestore отдаёт документы по id, а экраны показывают категории по имени.
+    override val categories: Flow<List<Category>> =
+        perUser({ it.collection(CATEGORIES) }, ::categoryFrom).map { it.sortedWith(CategoryByName) }
 
     override val accounts: Flow<List<Account>> = perUser({ it.collection(ACCOUNTS) }, ::accountFrom)
 
@@ -94,6 +98,19 @@ class CloudFinanceRepository(
         val user = currentUserDoc() ?: return
         user.collection(TRANSACTIONS).document(transactionId).delete()
             .addOnFailureListener { Log.w(TAG, "deleteTransaction failed", it) }
+    }
+
+    override suspend fun saveCategory(category: Category) {
+        val user = currentUserDoc() ?: return
+        val saved = if (category.id.isBlank()) category.copy(id = newCategoryId()) else category
+        user.collection(CATEGORIES).document(saved.id).set(saved.toMap())
+            .addOnFailureListener { Log.w(TAG, "saveCategory failed", it) }
+    }
+
+    override suspend fun deleteCategory(categoryId: String) {
+        val user = currentUserDoc() ?: return
+        user.collection(CATEGORIES).document(categoryId).delete()
+            .addOnFailureListener { Log.w(TAG, "deleteCategory failed", it) }
     }
 
     /** Заливает демо-данные. Идентификаторы постоянные: повторный вызов перезаписывает те же документы. */

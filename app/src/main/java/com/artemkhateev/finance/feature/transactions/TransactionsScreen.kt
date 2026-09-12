@@ -16,10 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,6 +32,7 @@ import com.artemkhateev.finance.data.AppGraph
 import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.FinanceCard
 import com.artemkhateev.finance.ui.components.MoneyText
+import com.artemkhateev.finance.ui.components.RoundAddButton
 import com.artemkhateev.finance.ui.components.SectionHeader
 import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.format.SignStyle
@@ -76,7 +74,8 @@ fun TransactionsScreen(
                 }
             }
         }
-        AddTransactionButton(
+        RoundAddButton(
+            contentDescription = "Add transaction",
             onClick = viewModel::startNew,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -94,26 +93,6 @@ fun TransactionsScreen(
             onSave = viewModel::saveDraft,
             onDelete = viewModel::deleteDraft,
             onDismiss = viewModel::dismissDraft,
-        )
-    }
-}
-
-@Composable
-private fun AddTransactionButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = FinanceTheme.colors
-    Box(
-        modifier = modifier
-            .size(56.dp)
-            .clip(CircleShape)
-            .background(colors.accent)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.Add,
-            contentDescription = "Add transaction",
-            tint = colors.background,
-            modifier = Modifier.size(28.dp),
         )
     }
 }
