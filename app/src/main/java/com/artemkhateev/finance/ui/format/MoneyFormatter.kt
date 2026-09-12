@@ -32,4 +32,15 @@ object MoneyFormatter {
 
     fun format(amount: Money, cents: Boolean = true, sign: SignStyle = SignStyle.None): String =
         parts(amount, cents, sign).toString()
+
+    /** Подписи осей графиков: €3K, €1.2K, -€762. */
+    fun compact(amount: Money): String {
+        val major = BigDecimal.valueOf(kotlin.math.abs(amount.minor), 2)
+        val body = if (major >= BigDecimal(1000)) {
+            major.movePointLeft(3).setScale(1, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString() + "K"
+        } else {
+            major.setScale(0, RoundingMode.HALF_UP).toPlainString()
+        }
+        return (if (amount.minor < 0) "-" else "") + CURRENCY_SYMBOL + body
+    }
 }

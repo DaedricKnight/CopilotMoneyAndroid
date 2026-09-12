@@ -31,7 +31,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.artemkhateev.finance.R
 import com.artemkhateev.finance.data.AppGraph
 import com.artemkhateev.finance.feature.auth.SignInScreen
+import com.artemkhateev.finance.feature.cashflow.CashFlowScreen
+import com.artemkhateev.finance.feature.categories.CategoriesScreen
 import com.artemkhateev.finance.feature.dashboard.DashboardScreen
+import com.artemkhateev.finance.feature.recurrings.RecurringsScreen
 import com.artemkhateev.finance.feature.transactions.TransactionsScreen
 import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.PillTabRow
@@ -75,8 +78,11 @@ private fun HomeScreen() {
         Spacer(Modifier.height(8.dp))
         HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
             when (val tab = tabs[page]) {
+                AppTab.CashFlow -> CashFlowScreen()
                 AppTab.Dashboard -> DashboardScreen()
                 AppTab.Transactions -> TransactionsScreen()
+                AppTab.Categories -> CategoriesScreen()
+                AppTab.Recurrings -> RecurringsScreen()
                 else -> EmptyState(tab.title, "This section isn't built yet")
             }
         }

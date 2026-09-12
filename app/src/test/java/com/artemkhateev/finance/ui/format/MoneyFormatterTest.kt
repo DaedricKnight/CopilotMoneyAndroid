@@ -21,4 +21,13 @@ class MoneyFormatterTest {
         assertEquals("+€15.00", MoneyFormatter.format(Money(1_500), sign = SignStyle.Always))
         assertEquals("-€75.00", MoneyFormatter.format(Money(-7_500), sign = SignStyle.Always))
     }
+
+    @Test
+    fun `compact labels shorten thousands`() {
+        assertEquals("€3K", MoneyFormatter.compact(Money(300_000)))
+        assertEquals("€1.2K", MoneyFormatter.compact(Money(123_456)))
+        assertEquals("€10K", MoneyFormatter.compact(Money(1_000_000)))
+        assertEquals("-€762", MoneyFormatter.compact(Money(-76_200)))
+        assertEquals("€0", MoneyFormatter.compact(Money.Zero))
+    }
 }

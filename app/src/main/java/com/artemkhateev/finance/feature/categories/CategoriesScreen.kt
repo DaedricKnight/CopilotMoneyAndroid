@@ -1,0 +1,370 @@
+package com.artemkhateev.finance.feature.categories
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.artemkhateev.finance.data.AppGraph
+import com.artemkhateev.finance.data.FinanceRepository
+import com.artemkhateev.finance.ui.components.CategoryChip
+import com.artemkhateev.finance.ui.components.EmptyState
+import com.artemkhateev.finance.ui.components.FinanceCard
+import com.artemkhateev.finance.ui.components.MoneyText
+import com.artemkhateev.finance.ui.components.SectionHeader
+import com.artemkhateev.finance.ui.components.SegmentedControl
+import com.artemkhateev.finance.ui.components.appendMoney
+import com.artemkhateev.finance.ui.components.screenContentPadding
+import com.artemkhateev.finance.ui.format.SignStyle
+import com.artemkhateev.finance.ui.format.dayLabel
+import com.artemkhateev.finance.ui.theme.FinanceTheme
+import com.artemkhateev.finance.ui.theme.color
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import java.time.LocalDate
+import kotlin.math.roundToInt
+
+class CategoriesViewModel(
+    repository: FinanceRepository,
+    today: () -> LocalDate = { LocalDate.now() },
+) : ViewModel() {
+
+    /** null — данные ещё не пришли. */
+    val state: StateFlow<CategoriesUiState?> =
+        combine(repository.categories, repository.transactions) { categories, transactions ->
+            buildCategories(today(), categories, transactions)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val selectedId = MutableStateFlow<String?>(null)
+
+    /** Открытая карточка категории; null — закрыта. */
+    val detail: StateFlow<CategoryDetailUi?> =
+        combine(selectedId, repository.categories, repository.transactions) { id, categories, transactions ->
+            id?.let { buildCategoryDetail(today(), it, categories, transactions) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun open(categoryId: String) {
+        selectedId.value = categoryId
+    }
+
+    fun close() {
+        selectedId.value = null
+    }
+}
+
+@Composable
+fun CategoriesScreen(
+    viewModel: CategoriesViewModel = viewModel { CategoriesViewModel(AppGraph.repository) },
+) {
+    val loaded by viewModel.state.collectAsStateWithLifecycle()
+    val detail by viewModel.detail.collectAsStateWithLifecycle()
+    val state = loaded ?: return
+    val colors = FinanceTheme.colors
+    var showPercent by rememberSaveable { mutableStateOf(false) }
+
+    if (state.budgets.isEmpty() && state.unbudgeted.isEmpty()) {
+        EmptyState("No categories yet", "Categories with budgets will show up here.")
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = screenContentPadding(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (state.budgets.isNotEmpty()) {
+                item(key = "budgets") {
+                    BudgetsCard(state, showPercent, onShowPercent = { showPercent = it }, onOpen = viewModel::open)
+                }
+            }
+            if (state.unbudgeted.isNotEmpty()) {
+                item(key = "unbudgeted-header") { SectionHeader("Without budget") }
+                item(key = "unbudgeted") {
+                    FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
+                        state.unbudgeted.forEachIndexed { index, row ->
+                            if (index > 0) HorizontalDivider(color = colors.border)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.open(row.category.id) }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CategoryChip(row.category)
+                                Spacer(Modifier.weight(1f))
+                                MoneyText(row.spent)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    detail?.let { CategoryDetailSheet(it, onDismiss = viewModel::close) }
+}
+
+private val DeltaColumnWidth = 76.dp
+
+@Composable
+private fun BudgetsCard(
+    state: CategoriesUiState,
+    showPercent: Boolean,
+    onShowPercent: (Boolean) -> Unit,
+    onOpen: (String) -> Unit,
+) {
+    val colors = FinanceTheme.colors
+    val typography = FinanceTheme.typography
+    val under = state.totalLeft.minor >= 0
+
+    FinanceCard(
+        hero = true,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        contentPadding = PaddingValues(start = 16.dp, top = 18.dp, end = 16.dp, bottom = 16.dp),
+    ) {
+        Text("Budgets", style = typography.cardTitle, color = colors.textPrimary)
+        Spacer(Modifier.height(12.dp))
+        SegmentedControl(
+            options = listOf("Amount", "Percentage"),
+            selectedIndex = if (showPercent) 1 else 0,
+            onSelect = { onShowPercent(it == 1) },
+        )
+        Spacer(Modifier.height(12.dp))
+        MoneyText(
+            amount = state.totalLeft.abs(),
+            style = typography.heroAmount,
+            color = if (under) colors.positiveText else colors.negativeText,
+            cents = false,
+        )
+        Text(
+            text = if (under) "under total budget" else "over total budget",
+            style = typography.bodySecondary,
+            color = colors.textSecondary,
+        )
+        Spacer(Modifier.height(16.dp))
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    // Пунктир «ровно бюджет» идёт через все строки по середине дорожки.
+                    val x = (size.width - DeltaColumnWidth.toPx()) / 2
+                    drawLine(
+                        color = colors.textInactive,
+                        start = Offset(x, 0f),
+                        end = Offset(x, size.height),
+                        strokeWidth = 1.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 4.dp.toPx())),
+                    )
+                },
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(Modifier.fillMaxWidth()) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "TARGET",
+                        style = typography.chip,
+                        color = colors.sectionLabel,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(colors.pill)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+                Spacer(Modifier.width(DeltaColumnWidth))
+            }
+            state.budgets.forEach { item ->
+                BudgetBarRow(item, showPercent, onClick = { onOpen(item.category.id) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun BudgetBarRow(item: CategoryBudgetUi, showPercent: Boolean, onClick: () -> Unit) {
+    val colors = FinanceTheme.colors
+    val typography = FinanceTheme.typography
+    val tone = item.category.tone.color()
+    val over = item.spent > item.budget
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
+            // Бюджет — середина дорожки: видно и недорасход, и перерасход до двух бюджетов.
+            // Короче 14 % полосу не делаем, иначе в неё не влезает эмодзи.
+            Box(
+                Modifier
+                    .fillMaxWidth((item.ratio / 2f).coerceIn(0.14f, 1f))
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                    .background(tone.copy(alpha = 0.22f)),
+            )
+            Row(
+                modifier = Modifier.padding(start = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(Modifier.size(6.dp).clip(CircleShape).background(tone))
+                Text(item.category.emoji, fontSize = 16.sp)
+            }
+            Text(
+                text = item.category.name,
+                style = typography.body,
+                color = tone,
+                maxLines = 1,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+        Box(Modifier.width(DeltaColumnWidth), contentAlignment = Alignment.CenterEnd) {
+            val deltaColor = if (over) colors.negativeText else colors.textPrimary
+            if (showPercent) {
+                Text("${(item.ratio * 100).roundToInt()}%", style = typography.bodySecondary, color = deltaColor)
+            } else {
+                val difference = item.spent - item.budget
+                Text(
+                    text = buildAnnotatedString {
+                        // Ровно в бюджет — без стрелки: нет ни недорасхода, ни перерасхода.
+                        if (difference.minor != 0L) append(if (over) "↑ " else "↓ ")
+                        appendMoney(difference.abs(), typography.bodySecondary.fontSize, cents = false)
+                    },
+                    style = typography.bodySecondary,
+                    color = deltaColor,
+                )
+            }
+        }
+    }
+}
+
+/** Карточка категории, как в референсе: эмодзи, название в цвете категории, сумма и транзакции месяца. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CategoryDetailSheet(detail: CategoryDetailUi, onDismiss: () -> Unit) {
+    val colors = FinanceTheme.colors
+    val typography = FinanceTheme.typography
+    val tone = detail.category.tone.color()
+    val today = remember { LocalDate.now() }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.surface) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("CATEGORY", style = typography.sectionLabel, color = colors.sectionLabel)
+            Spacer(Modifier.height(14.dp))
+            Text(detail.category.emoji, fontSize = 34.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(detail.category.name, style = typography.heroAmount, color = tone)
+            Spacer(Modifier.height(12.dp))
+            MoneyText(detail.spent, style = typography.heroAmount.copy(fontSize = 30.sp), cents = false)
+            val budget = detail.budget
+            Text(
+                text = if (budget == null) {
+                    buildAnnotatedString { append("spent this month") }
+                } else {
+                    buildAnnotatedString {
+                        append("spent of ")
+                        appendMoney(budget, typography.bodySecondary.fontSize, cents = false)
+                        append(" budget")
+                    }
+                },
+                style = typography.bodySecondary,
+                color = colors.textSecondary,
+            )
+            if (budget != null) {
+                val ratio = detail.spent.minor.toFloat() / budget.minor
+                Spacer(Modifier.height(12.dp))
+                Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(colors.track)) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(ratio.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .clip(CircleShape)
+                            .background(if (ratio > 1f) colors.negative else tone),
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            SectionHeader("This month")
+            Spacer(Modifier.height(8.dp))
+            if (detail.transactions.isEmpty()) {
+                Text("No transactions this month", style = typography.bodySecondary, color = colors.textSecondary)
+            } else {
+                FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
+                    detail.transactions.forEachIndexed { index, transaction ->
+                        if (index > 0) HorizontalDivider(color = colors.border)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = transaction.merchant,
+                                    style = typography.body,
+                                    color = colors.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(dayLabel(transaction.date, today), style = typography.caption, color = colors.textSecondary)
+                            }
+                            val income = transaction.amount.minor > 0
+                            MoneyText(
+                                amount = if (income) transaction.amount else transaction.amount.abs(),
+                                color = if (income) colors.positiveText else colors.textPrimary,
+                                sign = if (income) SignStyle.Always else SignStyle.None,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
