@@ -1,0 +1,14 @@
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+build/
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Конфиг Firebase не секретный (доступ режут Security Rules), но в публичный
+# репозиторий его не кладём: каждый разработчик подключает свой проект.
+app/google-services.json
