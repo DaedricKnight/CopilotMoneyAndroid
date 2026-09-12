@@ -2,7 +2,11 @@ package com.artemkhateev.finance.feature.accounts
 
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.AccountType
+import com.artemkhateev.finance.data.model.AssetClass
+import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
+import com.artemkhateev.finance.data.model.PortfolioSnapshot
+import com.artemkhateev.finance.data.model.QUANTITY_SCALE
 import com.artemkhateev.finance.data.model.Transaction
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -14,6 +18,11 @@ class AccountsStateTest {
     private val checking = Account("checking", "Checking", "Bank", AccountType.Checking, Money(100_000), mask = "2124")
     private val savings = Account("savings", "Savings", "Bank", AccountType.Savings, Money(500_000))
     private val card = Account("card", "Visa", "Bank", AccountType.CreditCard, Money(-30_000))
+    private val brokerage = Account("brokerage", "Brokerage", "Invest", AccountType.Investment, Money(1_000))
+    private val fund = Holding(
+        "fund", "brokerage", "VWCE", "All-World", AssetClass.Fund,
+        quantityMicros = 10 * QUANTITY_SCALE, costPerUnit = Money(10_000), price = Money(12_000), priceUpdated = today,
+    )
 
     private fun tx(account: String, cents: Long, day: Int) =
         Transaction("t-$account-$cents-$day", account, "Shop", Money(cents), LocalDate.of(2026, 9, day), null)
@@ -48,5 +57,35 @@ class AccountsStateTest {
     fun `transactions of deleted accounts do not move net worth`() {
         val state = buildAccounts(today, listOf(checking), listOf(tx("gone", -10_000, 14)))
         assertEquals(Money.Zero, state.change)
+    }
+
+    @Test
+    fun `account with holdings is worth its holdings`() {
+        val state = buildAccounts(today, listOf(checking, brokerage), emptyList(), listOf(fund))
+        val row = state.groups.single { it.title == "Investments" }.accounts.single()
+
+        assertEquals(Money(120_000), row.displayBalance)
+        assertEquals(Money(1_000), row.account.balance) // форма правки видит хранимый остаток
+        assertEquals(Money(220_000), state.netWorth)
+        assertEquals(setOf("brokerage"), state.holdingAccountIds)
+    }
+
+    @Test
+    fun `net worth history follows portfolio snapshots`() {
+        val snapshots = listOf(PortfolioSnapshot(LocalDate.of(2026, 9, 10), Money(100_000)))
+        val state = buildAccounts(today, listOf(checking, brokerage), emptyList(), listOf(fund), snapshots)
+
+        assertEquals(200_000L, state.history.first()) // до первого снимка — его значение
+        assertEquals(200_000L, state.history[41]) // конец 11-го
+        assertEquals(220_000L, state.history.last())
+        assertEquals(Money(20_000), state.change)
+    }
+
+    @Test
+    fun `snapshots without holdings do not move net worth`() {
+        val snapshots = listOf(PortfolioSnapshot(LocalDate.of(2026, 9, 10), Money(100_000)))
+        val state = buildAccounts(today, listOf(checking), emptyList(), emptyList(), snapshots)
+
+        assertEquals(List(46) { 100_000L }, state.history)
     }
 }

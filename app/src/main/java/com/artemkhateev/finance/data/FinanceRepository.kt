@@ -2,6 +2,8 @@ package com.artemkhateev.finance.data
 
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
+import com.artemkhateev.finance.data.model.Holding
+import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +23,11 @@ interface FinanceRepository {
     /** Транзакции начиная с [transactionsWindowStart], новые сверху. */
     val transactions: Flow<List<Transaction>>
     val recurrings: Flow<List<Recurring>>
+
+    val holdings: Flow<List<Holding>>
+
+    /** Снимки стоимости портфеля за последний год, от старых к новым. */
+    val portfolioHistory: Flow<List<PortfolioSnapshot>>
 
     suspend fun markReviewed(transactionIds: Collection<String>)
     suspend fun setCategory(transactionId: String, categoryId: String?)
@@ -43,8 +50,18 @@ interface FinanceRepository {
     /** Пустой id — новый счёт, id выдаст репозиторий; иначе счёт перезаписывается. */
     suspend fun saveAccount(account: Account)
 
-    /** Транзакции удалённого счёта остаются, но на остатки и чистый капитал больше не влияют. */
+    /**
+     * Удаляет счёт вместе с его позициями. Транзакции счёта остаются, но на остатки
+     * и чистый капитал больше не влияют.
+     */
     suspend fun deleteAccount(accountId: String)
+
+    /** Пустой id — новая позиция, id выдаст репозиторий; иначе позиция перезаписывается. */
+    suspend fun saveHolding(holding: Holding)
+    suspend fun deleteHolding(holdingId: String)
+
+    /** Записывает стоимость портфеля за день; второй снимок за тот же день заменяет первый. */
+    suspend fun recordPortfolioValue(snapshot: PortfolioSnapshot)
 }
 
 /** Экраны показывают прошлый и текущий месяц: более ранние транзакции не загружаются и не вводятся. */

@@ -36,6 +36,21 @@ class InputFiltersTest {
     }
 
     @Test
+    fun `quantity keeps fractions down to a millionth`() {
+        assertEquals(50_000L, parseQuantity("0.05"))
+        assertEquals(1_500_000L, parseQuantity("1,5"))
+        assertNull(parseQuantity("0.0000001"))
+        assertEquals("0.123456", sanitizeQuantityInput("0.1234567"))
+    }
+
+    @Test
+    fun `quantity for editing drops trailing zeros`() {
+        assertEquals("42", quantityText(42_000_000))
+        assertEquals("0.05", quantityText(50_000))
+        assertEquals("850", quantityText(850_000_000))
+    }
+
+    @Test
     fun `emoji field keeps only the last typed symbol`() {
         assertEquals("🍔", lastGrapheme("🥑🍔"))
         assertEquals("a", lastGrapheme("a"))

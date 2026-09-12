@@ -35,6 +35,7 @@ import com.artemkhateev.finance.feature.auth.SignInScreen
 import com.artemkhateev.finance.feature.cashflow.CashFlowScreen
 import com.artemkhateev.finance.feature.categories.CategoriesScreen
 import com.artemkhateev.finance.feature.dashboard.DashboardScreen
+import com.artemkhateev.finance.feature.investments.InvestmentsScreen
 import com.artemkhateev.finance.feature.recurrings.RecurringsScreen
 import com.artemkhateev.finance.feature.transactions.TransactionsScreen
 import com.artemkhateev.finance.ui.components.EmptyState
@@ -81,6 +82,7 @@ private fun HomeScreen() {
             when (val tab = tabs[page]) {
                 AppTab.CashFlow -> CashFlowScreen()
                 AppTab.Accounts -> AccountsScreen()
+                AppTab.Investments -> InvestmentsScreen()
                 AppTab.Dashboard -> DashboardScreen()
                 AppTab.Transactions -> TransactionsScreen()
                 AppTab.Categories -> CategoriesScreen()

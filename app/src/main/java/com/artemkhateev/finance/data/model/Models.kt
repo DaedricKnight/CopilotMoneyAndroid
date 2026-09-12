@@ -1,5 +1,7 @@
 package com.artemkhateev.finance.data.model
 
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.math.roundToLong
@@ -51,6 +53,7 @@ enum class AccountType { Checking, Savings, CreditCard, Investment }
 /**
  * Остаток со знаком: у активов положительный, долг по кредитной карте — отрицательный.
  * Ручные транзакции сдвигают его сами, см. [balanceChanges][com.artemkhateev.finance.data.balanceChanges].
+ * Стоимость счёта с позициями считается по позициям, а не по этому полю.
  */
 data class Account(
     val id: String,
@@ -100,3 +103,70 @@ data class Recurring(
     val dayOfMonth: Int,
     val categoryId: String? = null,
 )
+
+/** Количество в позициях хранится в миллионных долях: у фондов и крипты бывают дробные доли. */
+const val QUANTITY_DECIMALS = 6
+const val QUANTITY_SCALE = 1_000_000L
+
+enum class AssetClass { Stock, Fund, Crypto, Bond, Cash, Other }
+
+/** Позиция в инвестиционном счёте. Котировок приложение не получает — цену обновляют вручную. */
+data class Holding(
+    val id: String,
+    val accountId: String,
+    val symbol: String,
+    val name: String,
+    val assetClass: AssetClass,
+    val quantityMicros: Long,
+    /** Средняя цена покупки за единицу. */
+    val costPerUnit: Money,
+    /** Текущая цена за единицу. */
+    val price: Money,
+    /** Когда цену меняли в последний раз. */
+    val priceUpdated: LocalDate,
+)
+
+/** Количество × цена за единицу с округлением до цента. */
+fun holdingValue(quantityMicros: Long, unitPrice: Money): Money = Money(
+    BigDecimal.valueOf(quantityMicros)
+        .multiply(BigDecimal.valueOf(unitPrice.minor))
+        .divide(BigDecimal.valueOf(QUANTITY_SCALE), 0, RoundingMode.HALF_UP)
+        .longValueExact(),
+)
+
+val Holding.value: Money get() = holdingValue(quantityMicros, price)
+
+val Holding.cost: Money get() = holdingValue(quantityMicros, costPerUnit)
+
+fun newHoldingId(nowMillis: Long = System.currentTimeMillis()): String =
+    "h-$nowMillis-${UUID.randomUUID().toString().take(8)}"
+
+/** Стоимость портфеля за день. Истории цен нет, поэтому её копят снимки при каждом изменении позиций. */
+data class PortfolioSnapshot(val date: LocalDate, val value: Money)
+
+/**
+ * Стоимость портфеля на конец каждого дня с [start] по [today]. Сегодня — [currentValue], сумма позиций
+ * сейчас; раньше — последний снимок на тот день. До первого снимка берём его же значение: как и остатки
+ * счетов, до первой записи стоимость считается неизменной.
+ */
+fun portfolioValueByDay(
+    start: LocalDate,
+    today: LocalDate,
+    snapshots: List<PortfolioSnapshot>,
+    currentValue: Long,
+): List<Long> {
+    val past = snapshots.filter { it.date.isBefore(today) }.sortedBy { it.date.toEpochDay() }
+    var next = 0
+    var value = past.firstOrNull()?.value?.minor ?: currentValue
+    val values = ArrayList<Long>()
+    var day = start
+    while (!day.isAfter(today)) {
+        while (next < past.size && !past[next].date.isAfter(day)) {
+            value = past[next].value.minor
+            next++
+        }
+        values += if (day == today) currentValue else value
+        day = day.plusDays(1)
+    }
+    return values
+}

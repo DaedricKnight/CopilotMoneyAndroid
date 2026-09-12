@@ -2,10 +2,13 @@ package com.artemkhateev.finance.data.firebase
 
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.AccountType
+import com.artemkhateev.finance.data.model.AssetClass
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.CategoryTone
+import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
+import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
 import java.time.LocalDate
@@ -93,6 +96,45 @@ internal fun recurringFrom(id: String, data: Map<String, Any?>): Recurring? = ru
         amount = Money((data["amount"] as Number).toLong()),
         dayOfMonth = (data["dayOfMonth"] as Number).toInt(),
         categoryId = data["categoryId"] as? String,
+    )
+}.getOrNull()
+
+internal fun Holding.toMap(): Map<String, Any?> = mapOf(
+    "accountId" to accountId,
+    "symbol" to symbol,
+    "name" to name,
+    "assetClass" to assetClass.name,
+    "quantityMicros" to quantityMicros,
+    "costPerUnit" to costPerUnit.minor,
+    "price" to price.minor,
+    "priceUpdated" to priceUpdated.toString(),
+)
+
+internal fun holdingFrom(id: String, data: Map<String, Any?>): Holding? = runCatching {
+    val symbol = data["symbol"] as String
+    Holding(
+        id = id,
+        accountId = data["accountId"] as? String ?: "",
+        symbol = symbol,
+        name = data["name"] as? String ?: symbol,
+        assetClass = enumOr(data["assetClass"], AssetClass.Other),
+        quantityMicros = (data["quantityMicros"] as Number).toLong(),
+        costPerUnit = Money((data["costPerUnit"] as Number).toLong()),
+        price = Money((data["price"] as Number).toLong()),
+        priceUpdated = LocalDate.parse(data["priceUpdated"] as String),
+    )
+}.getOrNull()
+
+internal fun PortfolioSnapshot.toMap(): Map<String, Any?> = mapOf(
+    "date" to date.toString(),
+    "value" to value.minor,
+)
+
+/** Id снимка — его дата, поэтому она же служит запасным источником даты. */
+internal fun snapshotFrom(id: String, data: Map<String, Any?>): PortfolioSnapshot? = runCatching {
+    PortfolioSnapshot(
+        date = LocalDate.parse(data["date"] as? String ?: id),
+        value = Money((data["value"] as Number).toLong()),
     )
 }.getOrNull()
 

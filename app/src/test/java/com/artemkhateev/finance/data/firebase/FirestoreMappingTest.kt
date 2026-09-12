@@ -2,9 +2,12 @@ package com.artemkhateev.finance.data.firebase
 
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.AccountType
+import com.artemkhateev.finance.data.model.AssetClass
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryTone
+import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
+import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
 import org.junit.Assert.assertEquals
@@ -37,6 +40,36 @@ class FirestoreMappingTest {
         val bill = Recurring("r", "Rent", "🏠", Money(120_000), dayOfMonth = 1, categoryId = "rent")
         // Firestore отдаёт любые целые числа как Long.
         assertEquals(bill, recurringFrom(bill.id, bill.toMap() + ("dayOfMonth" to 1L)))
+    }
+
+    @Test
+    fun `holding keeps a fractional quantity and prices`() {
+        val holding = Holding(
+            "h1", "brokerage", "BTC", "Bitcoin", AssetClass.Crypto,
+            quantityMicros = 50_000, costPerUnit = Money(3_850_000), price = Money(5_420_000),
+            priceUpdated = LocalDate.of(2026, 9, 12),
+        )
+        assertEquals(holding, holdingFrom(holding.id, holding.toMap()))
+    }
+
+    @Test
+    fun `holding without a name shows its ticker`() {
+        val data = mapOf(
+            "symbol" to "VWCE",
+            "quantityMicros" to 1_000_000L,
+            "costPerUnit" to 9_810L,
+            "price" to 12_135L,
+            "priceUpdated" to "2026-09-12",
+        )
+        assertEquals("VWCE", holdingFrom("h", data)?.name)
+    }
+
+    @Test
+    fun `snapshot takes its date from the document id when the field is missing`() {
+        assertEquals(
+            PortfolioSnapshot(LocalDate.of(2026, 9, 12), Money(100_000)),
+            snapshotFrom("2026-09-12", mapOf("value" to 100_000L)),
+        )
     }
 
     @Test

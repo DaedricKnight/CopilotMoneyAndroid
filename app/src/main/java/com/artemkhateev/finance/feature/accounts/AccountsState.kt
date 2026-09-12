@@ -3,15 +3,20 @@ package com.artemkhateev.finance.feature.accounts
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.AccountByName
 import com.artemkhateev.finance.data.model.AccountType
+import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
+import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.portfolioValueByDay
+import com.artemkhateev.finance.data.model.value
 import com.artemkhateev.finance.data.transactionsWindowStart
 import com.artemkhateev.finance.ui.format.shortDate
 import java.time.LocalDate
 
 data class AccountRowUi(
+    /** Счёт как он хранится: форма правки берёт данные отсюда. */
     val account: Account,
-    /** Остаток для показа: у кредитных карт — сумма долга без минуса. */
+    /** Остаток для показа: у кредитных карт — сумма долга без минуса, у счёта с позициями — их стоимость. */
     val displayBalance: Money,
     /** «Demo Bank •• 2124»; пустая строка, если ни банка, ни цифр нет. */
     val subtitle: String,
@@ -37,6 +42,8 @@ data class AccountsUiState(
     val firstLabel: String,
     val lastLabel: String,
     val groups: List<AccountGroupUi>,
+    /** Счета, чья стоимость считается по позициям: остаток у них вручную не вводится. */
+    val holdingAccountIds: Set<String>,
 )
 
 /** Порядок групп: сначала деньги, потом долги. */
@@ -47,16 +54,37 @@ private val GroupOrder = listOf(
     AccountType.CreditCard to "Credit cards",
 )
 
-fun buildAccounts(today: LocalDate, accounts: List<Account>, transactions: List<Transaction>): AccountsUiState {
-    val assets = accounts.filter { it.type != AccountType.CreditCard }.sumOf { it.balance.minor }
-    val liabilities = -accounts.filter { it.type == AccountType.CreditCard }.sumOf { it.balance.minor }
-    val history = netWorthHistory(today, accounts, transactions)
+fun buildAccounts(
+    today: LocalDate,
+    accounts: List<Account>,
+    transactions: List<Transaction>,
+    holdings: List<Holding> = emptyList(),
+    portfolioHistory: List<PortfolioSnapshot> = emptyList(),
+): AccountsUiState {
+    // Счёт с позициями стоит столько, сколько его позиции, а не сколько когда-то ввели в остаток.
+    val holdingsValue = holdings.groupBy { it.accountId }.mapValues { (_, list) -> list.sumOf { it.value.minor } }
+    val holdingAccountIds = accounts.map { it.id }.filter { it in holdingsValue }.toSet()
+    fun valueOf(account: Account): Long = holdingsValue[account.id] ?: account.balance.minor
+
+    val assets = accounts.filter { it.type != AccountType.CreditCard }.sumOf { valueOf(it) }
+    val liabilities = -accounts.filter { it.type == AccountType.CreditCard }.sumOf { valueOf(it) }
+
+    val cashHistory = netWorthHistory(today, accounts.filterNot { it.id in holdingAccountIds }, transactions)
+    // Прошлую стоимость позиций знают только снимки портфеля. Позиций не осталось — их история
+    // уходит целиком, как у любого удалённого счёта.
+    val history = if (holdingAccountIds.isEmpty()) {
+        cashHistory
+    } else {
+        val holdingsNow = holdingAccountIds.sumOf { holdingsValue.getValue(it) }
+        val invested = portfolioValueByDay(transactionsWindowStart(today), today, portfolioHistory, holdingsNow)
+        cashHistory.zip(invested) { cash, investments -> cash + investments }
+    }
 
     val groups = GroupOrder.mapNotNull { (type, title) ->
         val ofType = accounts.filter { it.type == type }.sortedWith(AccountByName)
         if (ofType.isEmpty()) return@mapNotNull null
         val liability = type == AccountType.CreditCard
-        val total = ofType.sumOf { it.balance.minor }
+        val total = ofType.sumOf { valueOf(it) }
         AccountGroupUi(
             title = title,
             liability = liability,
@@ -64,7 +92,7 @@ fun buildAccounts(today: LocalDate, accounts: List<Account>, transactions: List<
             accounts = ofType.map { account ->
                 AccountRowUi(
                     account = account,
-                    displayBalance = if (liability) -account.balance else account.balance,
+                    displayBalance = Money(if (liability) -valueOf(account) else valueOf(account)),
                     subtitle = listOfNotNull(account.institution.ifBlank { null }, account.mask?.let { "•• $it" })
                         .joinToString(" "),
                 )
@@ -81,6 +109,7 @@ fun buildAccounts(today: LocalDate, accounts: List<Account>, transactions: List<
         firstLabel = shortDate(transactionsWindowStart(today)),
         lastLabel = shortDate(today),
         groups = groups,
+        holdingAccountIds = holdingAccountIds,
     )
 }
 

@@ -47,6 +47,8 @@ fun AccountEditorSheet(
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
+    /** Стоимость счёта считается по его позициям — остаток вручную не вводится. */
+    valuedByHoldings: Boolean = false,
 ) {
     val colors = FinanceTheme.colors
     val typography = FinanceTheme.typography
@@ -98,18 +100,28 @@ fun AccountEditorSheet(
                 capitalization = KeyboardCapitalization.Words,
             )
 
-            FieldLabel(if (draft.type == AccountType.CreditCard) "Amount owed" else "Current balance")
-            MoneyInputField(
-                text = draft.balanceText,
-                onValueChange = { text -> onChange { it.copy(balanceText = text) } },
-                textStyle = typography.heroAmount.copy(fontSize = 32.sp, color = colors.textPrimary),
-            )
-            Text(
-                text = "Transactions you add by hand change this balance",
-                style = typography.caption,
-                color = colors.textSecondary,
-                textAlign = TextAlign.Center,
-            )
+            if (valuedByHoldings) {
+                FieldLabel("Value")
+                Text(
+                    text = "Comes from its holdings. Update prices and quantities in Investments",
+                    style = typography.bodySecondary,
+                    color = colors.textSecondary,
+                    textAlign = TextAlign.Center,
+                )
+            } else {
+                FieldLabel(if (draft.type == AccountType.CreditCard) "Amount owed" else "Current balance")
+                MoneyInputField(
+                    text = draft.balanceText,
+                    onValueChange = { text -> onChange { it.copy(balanceText = text) } },
+                    textStyle = typography.heroAmount.copy(fontSize = 32.sp, color = colors.textPrimary),
+                )
+                Text(
+                    text = "Transactions you add by hand change this balance",
+                    style = typography.caption,
+                    color = colors.textSecondary,
+                    textAlign = TextAlign.Center,
+                )
+            }
 
             FieldLabel("Last 4 digits")
             CenteredTextField(
@@ -151,7 +163,11 @@ fun AccountEditorSheet(
                 )
                 if (confirmDelete) {
                     Text(
-                        text = "Its transactions stay but no longer count toward net worth",
+                        text = if (valuedByHoldings) {
+                            "Its holdings are deleted too. Transactions stay but no longer count toward net worth"
+                        } else {
+                            "Its transactions stay but no longer count toward net worth"
+                        },
                         style = typography.caption,
                         color = colors.textSecondary,
                         textAlign = TextAlign.Center,

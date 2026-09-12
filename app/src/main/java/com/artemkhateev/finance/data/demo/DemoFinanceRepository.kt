@@ -5,17 +5,23 @@ import com.artemkhateev.finance.data.balanceChanges
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.AccountByName
 import com.artemkhateev.finance.data.model.AccountType
+import com.artemkhateev.finance.data.model.AssetClass
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryByName
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.CategoryTone
+import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.NewestFirst
+import com.artemkhateev.finance.data.model.PortfolioSnapshot
+import com.artemkhateev.finance.data.model.QUANTITY_SCALE
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.data.model.newAccountId
 import com.artemkhateev.finance.data.model.newCategoryId
+import com.artemkhateev.finance.data.model.newHoldingId
 import com.artemkhateev.finance.data.model.newTransactionId
+import com.artemkhateev.finance.data.model.value
 import com.artemkhateev.finance.data.transactionsWindowStart
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +29,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.time.DayOfWeek
 import java.time.LocalDate
+import kotlin.math.roundToLong
 import kotlin.random.Random
 
 /** Данные в памяти для разработки интерфейса: живут до перезапуска приложения. */
@@ -31,11 +38,15 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
     private val categoriesState = MutableStateFlow(DemoData.categories)
     private val accountsState = MutableStateFlow(DemoData.accounts)
     private val transactionsState = MutableStateFlow(DemoData.transactions(today))
+    private val holdingsState = MutableStateFlow(DemoData.holdings(today))
+    private val historyState = MutableStateFlow(DemoData.portfolioHistory(today))
 
     override val categories: Flow<List<Category>> = categoriesState.map { it.sortedWith(CategoryByName) }
     override val accounts: Flow<List<Account>> = accountsState.map { it.sortedWith(AccountByName) }
     override val transactions: Flow<List<Transaction>> = transactionsState
     override val recurrings: Flow<List<Recurring>> = MutableStateFlow(DemoData.recurrings)
+    override val holdings: Flow<List<Holding>> = holdingsState
+    override val portfolioHistory: Flow<List<PortfolioSnapshot>> = historyState
 
     override suspend fun markReviewed(transactionIds: Collection<String>) {
         val ids = transactionIds.toSet()
@@ -77,6 +88,22 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
 
     override suspend fun deleteAccount(accountId: String) {
         accountsState.update { list -> list.filterNot { it.id == accountId } }
+        holdingsState.update { list -> list.filterNot { it.accountId == accountId } }
+    }
+
+    override suspend fun saveHolding(holding: Holding) {
+        val saved = if (holding.id.isBlank()) holding.copy(id = newHoldingId()) else holding
+        holdingsState.update { list -> list.filterNot { it.id == saved.id } + saved }
+    }
+
+    override suspend fun deleteHolding(holdingId: String) {
+        holdingsState.update { list -> list.filterNot { it.id == holdingId } }
+    }
+
+    override suspend fun recordPortfolioValue(snapshot: PortfolioSnapshot) {
+        historyState.update { list ->
+            (list.filterNot { it.date == snapshot.date } + snapshot).sortedBy { it.date.toEpochDay() }
+        }
     }
 
     private fun applyBalanceChanges(changes: Map<String, Long>) {
@@ -107,6 +134,8 @@ internal object DemoData {
         Account("checking", "Checking", "Demo Bank", AccountType.Checking, Money.of(7989.12), mask = "2124"),
         Account("savings", "Savings", "Demo Bank", AccountType.Savings, Money.of(15200.0), mask = "8830"),
         Account("card", "Credit Card", "Demo Card", AccountType.CreditCard, Money.of(-642.37), mask = "4412"),
+        // Остаток не важен: стоимость счёта считается по позициям.
+        Account("brokerage", "Brokerage", "Demo Invest", AccountType.Investment, Money.Zero),
     )
 
     val recurrings = listOf(
@@ -118,6 +147,31 @@ internal object DemoData {
         Recurring("r-insurance", "Insurance", "☂️", Money.of(45.9), dayOfMonth = 15, categoryId = "utilities"),
         Recurring("r-gym", "Gym", "🏋️", Money.of(39.0), dayOfMonth = 20, categoryId = "subscriptions"),
     )
+
+    fun holdings(today: LocalDate) = listOf(
+        Holding("h-vwce", "brokerage", "VWCE", "Vanguard FTSE All-World", AssetClass.Fund, 42 * QUANTITY_SCALE, Money.of(98.10), Money.of(121.35), today),
+        Holding("h-aapl", "brokerage", "AAPL", "Apple", AssetClass.Stock, 8 * QUANTITY_SCALE, Money.of(152.40), Money.of(198.20), today),
+        Holding("h-btc", "brokerage", "BTC", "Bitcoin", AssetClass.Crypto, QUANTITY_SCALE / 20, Money.of(38_500.0), Money.of(54_200.0), today),
+        Holding("h-aggh", "brokerage", "AGGH", "Global Aggregate Bond", AssetClass.Bond, 60 * QUANTITY_SCALE, Money.of(5.10), Money.of(4.92), today),
+        Holding("h-eur", "brokerage", "EUR", "Cash", AssetClass.Cash, 850 * QUANTITY_SCALE, Money.of(1.0), Money.of(1.0), today),
+    )
+
+    /**
+     * Четыре месяца дневных снимков, заканчиваются сегодняшней стоимостью. Больше не берём: демо-данные
+     * заливаются в Firestore одной пачкой, а у неё предел 500 записей.
+     */
+    fun portfolioHistory(today: LocalDate): List<PortfolioSnapshot> {
+        val random = Random(today.year * 1000 + today.dayOfYear)
+        // Double здесь только для правдоподобного случайного блуждания; в снимок идут целые центы.
+        var value = holdings(today).sumOf { it.value.minor }.toDouble()
+        val points = ArrayList<PortfolioSnapshot>()
+        for (daysAgo in 0..120) {
+            points += PortfolioSnapshot(today.minusDays(daysAgo.toLong()), Money(value.roundToLong()))
+            // Шагаем назад во времени: дневной рост от −1,1 % до +1,3 %, так что в среднем портфель рос.
+            value /= 1 + (random.nextDouble() * 0.024 - 0.011)
+        }
+        return points.asReversed()
+    }
 
     private val coffee = listOf("Kava Bar", "Bean There")
     private val groceries = listOf("Green Grocer", "City Market", "Corner Store")

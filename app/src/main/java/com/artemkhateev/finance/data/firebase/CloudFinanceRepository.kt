@@ -10,12 +10,15 @@ import com.artemkhateev.finance.data.model.AccountByName
 import com.artemkhateev.finance.data.model.AccountType
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryByName
+import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.NewestFirst
+import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.data.model.newAccountId
 import com.artemkhateev.finance.data.model.newCategoryId
+import com.artemkhateev.finance.data.model.newHoldingId
 import com.artemkhateev.finance.data.model.newTransactionId
 import com.artemkhateev.finance.data.transactionsWindowStart
 import com.google.firebase.firestore.DocumentReference
@@ -38,8 +41,9 @@ import java.time.LocalDate
 private const val TAG = "CloudFinance"
 
 /**
- * Данные текущего пользователя в Firestore: users/{uid}/categories|accounts|transactions|recurrings.
- * Потоки следуют за входом и выходом, поэтому экранам не нужно пересоздаваться при смене аккаунта.
+ * Данные текущего пользователя в Firestore: users/{uid}/categories|accounts|transactions|recurrings|
+ * holdings|portfolioHistory. Потоки следуют за входом и выходом, поэтому экранам не нужно
+ * пересоздаваться при смене аккаунта.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CloudFinanceRepository(
@@ -76,6 +80,16 @@ class CloudFinanceRepository(
     ).map { list -> list.sortedWith(NewestFirst) }
 
     override val recurrings: Flow<List<Recurring>> = perUser({ it.collection(RECURRINGS) }, ::recurringFrom)
+
+    override val holdings: Flow<List<Holding>> = perUser({ it.collection(HOLDINGS) }, ::holdingFrom)
+
+    override val portfolioHistory: Flow<List<PortfolioSnapshot>> = perUser(
+        { user ->
+            val since = today().minusYears(1).toString()
+            user.collection(PORTFOLIO_HISTORY).whereGreaterThanOrEqualTo("date", since)
+        },
+        ::snapshotFrom,
+    ).map { list -> list.sortedBy { it.date.toEpochDay() } }
 
     override suspend fun markReviewed(transactionIds: Collection<String>) {
         val user = currentUserDoc() ?: return
@@ -130,17 +144,49 @@ class CloudFinanceRepository(
         val user = currentUserDoc() ?: return
         user.collection(ACCOUNTS).document(accountId).delete()
             .addOnFailureListener { Log.w(TAG, "deleteAccount failed", it) }
+        // Без сети get() отвечает из локального кэша, так что позиции удаляются и офлайн.
+        user.collection(HOLDINGS).whereEqualTo("accountId", accountId).get()
+            .addOnSuccessListener { snapshot ->
+                if (snapshot.isEmpty) return@addOnSuccessListener
+                val batch = db.batch()
+                snapshot.documents.forEach { batch.delete(it.reference) }
+                batch.commit().addOnFailureListener { Log.w(TAG, "Holdings of $accountId not deleted", it) }
+            }
+            .addOnFailureListener { Log.w(TAG, "Holdings of $accountId not deleted", it) }
+    }
+
+    override suspend fun saveHolding(holding: Holding) {
+        val user = currentUserDoc() ?: return
+        val saved = if (holding.id.isBlank()) holding.copy(id = newHoldingId()) else holding
+        user.collection(HOLDINGS).document(saved.id).set(saved.toMap())
+            .addOnFailureListener { Log.w(TAG, "saveHolding failed", it) }
+    }
+
+    override suspend fun deleteHolding(holdingId: String) {
+        val user = currentUserDoc() ?: return
+        user.collection(HOLDINGS).document(holdingId).delete()
+            .addOnFailureListener { Log.w(TAG, "deleteHolding failed", it) }
+    }
+
+    override suspend fun recordPortfolioValue(snapshot: PortfolioSnapshot) {
+        val user = currentUserDoc() ?: return
+        // Id документа — дата: второй снимок за день просто перезаписывает первый.
+        user.collection(PORTFOLIO_HISTORY).document(snapshot.date.toString()).set(snapshot.toMap())
+            .addOnFailureListener { Log.w(TAG, "recordPortfolioValue failed", it) }
     }
 
     /** Заливает демо-данные. Идентификаторы постоянные: повторный вызов перезаписывает те же документы. */
     suspend fun importDemoData() {
         val user = currentUserDoc() ?: return
+        val day = today()
         val batch = db.batch()
         DemoData.categories.forEach { batch.set(user.collection(CATEGORIES).document(it.id), it.toMap()) }
         DemoData.accounts.forEach { batch.set(user.collection(ACCOUNTS).document(it.id), it.toMap()) }
         DemoData.recurrings.forEach { batch.set(user.collection(RECURRINGS).document(it.id), it.toMap()) }
-        DemoData.transactions(today()).forEach {
-            batch.set(user.collection(TRANSACTIONS).document(it.id), it.toMap())
+        DemoData.transactions(day).forEach { batch.set(user.collection(TRANSACTIONS).document(it.id), it.toMap()) }
+        DemoData.holdings(day).forEach { batch.set(user.collection(HOLDINGS).document(it.id), it.toMap()) }
+        DemoData.portfolioHistory(day).forEach {
+            batch.set(user.collection(PORTFOLIO_HISTORY).document(it.date.toString()), it.toMap())
         }
         batch.commit().await()
     }
@@ -183,6 +229,8 @@ class CloudFinanceRepository(
         const val ACCOUNTS = "accounts"
         const val TRANSACTIONS = "transactions"
         const val RECURRINGS = "recurrings"
+        const val HOLDINGS = "holdings"
+        const val PORTFOLIO_HISTORY = "portfolioHistory"
         val CASH = Account("cash", "Cash", "", AccountType.Checking, Money.Zero)
     }
 }

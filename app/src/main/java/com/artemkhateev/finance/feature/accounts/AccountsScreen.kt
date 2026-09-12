@@ -65,8 +65,13 @@ class AccountsViewModel(
 
     /** null — данные ещё не пришли. */
     val state: StateFlow<AccountsUiState?> =
-        combine(repository.accounts, repository.transactions) { accounts, transactions ->
-            buildAccounts(today(), accounts, transactions)
+        combine(
+            repository.accounts,
+            repository.transactions,
+            repository.holdings,
+            repository.portfolioHistory,
+        ) { accounts, transactions, holdings, history ->
+            buildAccounts(today(), accounts, transactions, holdings, history)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Все счета: по ним форма проверяет, не занято ли имя. */
@@ -158,6 +163,7 @@ fun AccountsScreen(
         AccountEditorSheet(
             draft = current,
             existing = allAccounts,
+            valuedByHoldings = current.id in state.holdingAccountIds,
             onChange = viewModel::updateDraft,
             onSave = viewModel::saveDraft,
             onDelete = viewModel::deleteDraft,

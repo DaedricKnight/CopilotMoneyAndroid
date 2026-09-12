@@ -4,7 +4,10 @@ import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryByName
 import com.artemkhateev.finance.data.model.CategoryTone
 import com.artemkhateev.finance.data.model.Money
+import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.sumOfMoney
+import com.artemkhateev.finance.data.model.value
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -74,5 +77,29 @@ class DemoFinanceRepositoryTest {
         repository.deleteTransaction(saved)
 
         assertEquals(before, balanceOf("card"))
+    }
+
+    @Test
+    fun `deleting an account deletes its holdings`() = runBlocking {
+        assertTrue(repository.holdings.first().any { it.accountId == "brokerage" })
+        repository.deleteAccount("brokerage")
+
+        assertTrue(repository.holdings.first().none { it.accountId == "brokerage" })
+    }
+
+    @Test
+    fun `second snapshot of the day replaces the first`() = runBlocking {
+        repository.recordPortfolioValue(PortfolioSnapshot(today, Money(1_000)))
+        repository.recordPortfolioValue(PortfolioSnapshot(today, Money(2_000)))
+        val history = repository.portfolioHistory.first()
+
+        assertEquals(Money(2_000), history.single { it.date == today }.value)
+        assertEquals(history.sortedBy { it.date.toEpochDay() }, history)
+    }
+
+    @Test
+    fun `demo portfolio history ends at today's value`() = runBlocking {
+        val value = repository.holdings.first().sumOfMoney { it.value }
+        assertEquals(PortfolioSnapshot(today, value), repository.portfolioHistory.first().last())
     }
 }
