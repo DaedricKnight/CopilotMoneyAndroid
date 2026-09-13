@@ -4,6 +4,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -36,6 +38,7 @@ import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.transactionsWindowStart
+import com.artemkhateev.finance.feature.categories.SuggestedCategory
 import com.artemkhateev.finance.ui.components.BoundedDatePickerDialog
 import com.artemkhateev.finance.ui.components.CategoryChip
 import com.artemkhateev.finance.ui.components.CenteredTextField
@@ -50,8 +53,11 @@ import com.artemkhateev.finance.ui.theme.color
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 
+/** Сколько категорий видно в форме сразу; остальные — в полном списке. */
+private const val QUICK_CATEGORY_LIMIT = 12
+
 /** Шторка добавления и правки транзакции: крупная сумма, мерчант и заметка — как в карточке транзакции референса. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TransactionEditorSheet(
     draft: TransactionDraft,
@@ -61,13 +67,19 @@ fun TransactionEditorSheet(
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
+    /** Сколько транзакций у каждой категории: частые видны в форме первыми. */
+    categoryUsage: Map<String, Int> = emptyMap(),
+    /** Заводит категорию из каталога и возвращает её id. */
+    onCreateCategory: (SuggestedCategory) -> String = { "" },
 ) {
     val colors = FinanceTheme.colors
     val typography = FinanceTheme.typography
     val today = remember { LocalDate.now() }
     val editing = draft.id.isNotBlank()
     var pickingDate by remember { mutableStateOf(false) }
+    var pickingCategory by remember { mutableStateOf(false) }
     var confirmDelete by remember(draft.id) { mutableStateOf(false) }
+    val wantedKind = if (draft.kind == EntryKind.Income) CategoryKind.Income else CategoryKind.Expense
 
     // На первом входе счета могут прийти позже, чем открылась форма: подставляем первый.
     LaunchedEffect(accounts, draft.accountId) {
@@ -88,6 +100,26 @@ fun TransactionEditorSheet(
                 delay(150)
                 runCatching { amountFocus.requestFocus() }
             }
+        }
+
+        // Полный список категорий открывается в той же шторке: две шторки сразу не показываем.
+        if (pickingCategory) {
+            CategoryPicker(
+                kind = wantedKind,
+                categories = categories,
+                selectedId = draft.categoryId,
+                onPick = { id ->
+                    onChange { it.copy(categoryId = id) }
+                    pickingCategory = false
+                },
+                onCreate = { suggestion ->
+                    val id = onCreateCategory(suggestion)
+                    onChange { it.copy(categoryId = id) }
+                    pickingCategory = false
+                },
+                onBack = { pickingCategory = false },
+            )
+            return@ModalBottomSheet
         }
 
         Column(
@@ -138,9 +170,12 @@ fun TransactionEditorSheet(
             )
 
             FieldLabel("Category")
-            val wantedKind = if (draft.kind == EntryKind.Income) CategoryKind.Income else CategoryKind.Expense
-            LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(categories.filter { it.kind == wantedKind }, key = { it.id }) { category ->
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                quickCategories(categories, wantedKind, categoryUsage, draft.categoryId, QUICK_CATEGORY_LIMIT).forEach { category ->
                     val selected = category.id == draft.categoryId
                     CategoryChip(
                         category = category,
@@ -151,6 +186,7 @@ fun TransactionEditorSheet(
                             .clickable { onChange { it.copy(categoryId = if (selected) null else category.id) } },
                     )
                 }
+                AllCategoriesChip(onClick = { pickingCategory = true })
             }
 
             FieldLabel("Account")

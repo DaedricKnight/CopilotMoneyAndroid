@@ -6,6 +6,8 @@ import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.newCategoryId
+import com.artemkhateev.finance.feature.categories.SuggestedCategory
 import com.artemkhateev.finance.ui.format.dayLabel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +29,8 @@ data class TransactionsUiState(
     val days: List<TransactionDayUi>,
     val categories: List<Category>,
     val accounts: List<Account>,
+    /** Сколько загруженных транзакций у каждой категории. */
+    val categoryUsage: Map<String, Int> = emptyMap(),
 )
 
 fun buildTransactionDays(
@@ -59,7 +63,12 @@ class TransactionsViewModel(
     /** null — данные ещё не пришли. */
     val state: StateFlow<TransactionsUiState?> =
         combine(repository.transactions, repository.categories, repository.accounts) { transactions, categories, accounts ->
-            TransactionsUiState(buildTransactionDays(today(), transactions, categories, accounts), categories, accounts)
+            TransactionsUiState(
+                days = buildTransactionDays(today(), transactions, categories, accounts),
+                categories = categories,
+                accounts = accounts,
+                categoryUsage = transactions.mapNotNull { it.categoryId }.groupingBy { it }.eachCount(),
+            )
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val mutableDraft = MutableStateFlow<TransactionDraft?>(null)
@@ -100,5 +109,16 @@ class TransactionsViewModel(
         val transaction = editing ?: return
         dismissDraft()
         viewModelScope.launch { repository.deleteTransaction(transaction) }
+    }
+
+    /**
+     * Категория из каталога, выбранная прямо в форме: заводится сразу, а id выдаётся здесь, чтобы форма
+     * могла выбрать её до ответа репозитория. Если такое имя уже есть, берётся существующая.
+     */
+    fun createCategory(suggestion: SuggestedCategory): String {
+        state.value?.categories?.firstOrNull { it.name.equals(suggestion.name, ignoreCase = true) }?.let { return it.id }
+        val category = suggestion.toCategory().copy(id = newCategoryId())
+        viewModelScope.launch { repository.saveCategory(category) }
+        return category.id
     }
 }

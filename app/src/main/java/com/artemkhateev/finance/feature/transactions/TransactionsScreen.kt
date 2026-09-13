@@ -93,6 +93,8 @@ fun TransactionsScreen(
             onSave = viewModel::saveDraft,
             onDelete = viewModel::deleteDraft,
             onDismiss = viewModel::dismissDraft,
+            categoryUsage = state.categoryUsage,
+            onCreateCategory = viewModel::createCategory,
         )
     }
 }
