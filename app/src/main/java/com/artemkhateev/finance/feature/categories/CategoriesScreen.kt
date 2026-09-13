@@ -141,6 +141,30 @@ class CategoriesViewModel(
         mutableDraft.value = null
         viewModelScope.launch { repository.deleteCategory(id) }
     }
+
+    private val mutableSuggestionsOpen = MutableStateFlow(false)
+
+    /** Открыт ли каталог готовых категорий. */
+    val suggestionsOpen: StateFlow<Boolean> = mutableSuggestionsOpen.asStateFlow()
+
+    fun openSuggestions() {
+        mutableSuggestionsOpen.value = true
+    }
+
+    fun closeSuggestions() {
+        mutableSuggestionsOpen.value = false
+    }
+
+    fun addSuggestions(chosen: List<SuggestedCategory>) {
+        mutableSuggestionsOpen.value = false
+        val taken = allCategories.value
+        viewModelScope.launch {
+            // Имя могло появиться, пока каталог был открыт: одинаковых категорий не заводим.
+            chosen
+                .filter { suggestion -> taken.none { it.name.equals(suggestion.name, ignoreCase = true) } }
+                .forEach { repository.saveCategory(it.toCategory()) }
+        }
+    }
 }
 
 @Composable
@@ -151,13 +175,18 @@ fun CategoriesScreen(
     val detail by viewModel.detail.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val allCategories by viewModel.allCategories.collectAsStateWithLifecycle()
+    val suggestionsOpen by viewModel.suggestionsOpen.collectAsStateWithLifecycle()
     val state = loaded ?: return
     val colors = FinanceTheme.colors
     var showPercent by rememberSaveable { mutableStateOf(false) }
 
+    if (suggestionsOpen) {
+        CategorySuggestionsSheet(existing = allCategories, onAdd = viewModel::addSuggestions, onDismiss = viewModel::closeSuggestions)
+    }
+
     Box(Modifier.fillMaxSize()) {
         if (state.budgets.isEmpty() && state.others.isEmpty()) {
-            EmptyState("No categories yet", "Tap + to create one.")
+            CategoriesEmptyState(onBrowse = viewModel::openSuggestions)
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -183,6 +212,7 @@ fun CategoriesScreen(
                         }
                     }
                 }
+                item(key = "suggestions") { SuggestionsLink(onClick = viewModel::openSuggestions) }
             }
         }
         RoundAddButton(
