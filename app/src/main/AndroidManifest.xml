@@ -20,6 +20,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Импорт CSV из «Поделиться» и из файлового менеджера. Записывает только после подтверждения в превью. -->
+        <activity
+            android:name=".feature.importing.ImportActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/import_label"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

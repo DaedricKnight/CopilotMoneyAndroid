@@ -2,4 +2,5 @@
 <resources>
     <!-- Рабочее название, как у проекта в Firebase. Перед публикацией проверить: см. README, «Перед публикацией в стор». -->
     <string name="app_name">Money Tracker</string>
+    <string name="import_label">Import to Money Tracker</string>
 </resources>

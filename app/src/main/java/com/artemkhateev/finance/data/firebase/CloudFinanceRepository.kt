@@ -253,6 +253,15 @@ class CloudFinanceRepository(
         }
     }
 
+    override suspend fun importTransactions(transactions: List<Transaction>) {
+        val user = currentUserDoc() ?: return
+        for (chunk in transactions.chunked(BATCH_LIMIT)) {
+            val batch = db.batch()
+            chunk.forEach { batch.set(user.collection(TRANSACTIONS).document(it.id), it.toMap()) }
+            batch.commit().await()
+        }
+    }
+
     /** Заливает демо-данные. Идентификаторы постоянные: повторный вызов перезаписывает те же документы. */
     suspend fun importDemoData() {
         val user = currentUserDoc() ?: return

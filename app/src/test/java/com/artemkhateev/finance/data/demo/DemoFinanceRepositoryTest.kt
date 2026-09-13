@@ -136,6 +136,15 @@ class DemoFinanceRepositoryTest {
     }
 
     @Test
+    fun `imported transactions leave balances alone`() = runBlocking {
+        val before = balanceOf("card")
+        repository.importTransactions(listOf(Transaction("i-1", "card", "Groceries", Money(-2_345), today, null, reviewed = true)))
+
+        assertEquals(before, balanceOf("card"))
+        assertTrue(repository.transactions.first().any { it.id == "i-1" })
+    }
+
+    @Test
     fun `deleting all data empties every list`() = runBlocking {
         repository.deleteAllData()
 

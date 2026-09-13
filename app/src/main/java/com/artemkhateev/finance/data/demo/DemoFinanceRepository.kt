@@ -159,6 +159,11 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
         contributionsState.value = emptyList()
     }
 
+    override suspend fun importTransactions(transactions: List<Transaction>) {
+        val ids = transactions.map { it.id }.toSet()
+        transactionsState.update { list -> (list.filterNot { it.id in ids } + transactions).sortedWith(NewestFirst) }
+    }
+
     private fun applyBalanceChanges(changes: Map<String, Long>) {
         if (changes.isEmpty()) return
         accountsState.update { list ->
