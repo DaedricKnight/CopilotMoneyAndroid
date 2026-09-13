@@ -11,11 +11,14 @@ import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Recurring
+import com.artemkhateev.finance.data.model.RecurringSchedule
 import com.artemkhateev.finance.data.model.Transaction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.Month
 
 class FirestoreMappingTest {
 
@@ -39,9 +42,30 @@ class FirestoreMappingTest {
 
     @Test
     fun `recurring reads a day stored as long`() {
-        val bill = Recurring("r", "Rent", "🏠", Money(120_000), dayOfMonth = 1, categoryId = "rent")
+        val bill = Recurring("r", "Rent", "🏠", Money(120_000), RecurringSchedule.Monthly(1), categoryId = "rent")
         // Firestore отдаёт любые целые числа как Long.
         assertEquals(bill, recurringFrom(bill.id, bill.toMap() + ("dayOfMonth" to 1L)))
+    }
+
+    @Test
+    fun `weekly and yearly schedules survive a round trip`() {
+        val weekly = Recurring("w", "Veggie box", "🥕", Money(1_850), RecurringSchedule.Weekly(DayOfWeek.SATURDAY))
+        val yearly = Recurring("y", "Cloud storage", "☁️", Money(9_999), RecurringSchedule.Yearly(Month.FEBRUARY, 29))
+
+        assertEquals(weekly, recurringFrom(weekly.id, weekly.toMap()))
+        assertEquals(yearly, recurringFrom(yearly.id, yearly.toMap()))
+    }
+
+    @Test
+    fun `recurring saved before frequencies is monthly`() {
+        val legacy = mapOf("name" to "Rent", "emoji" to "🏠", "amount" to 120_000L, "dayOfMonth" to 1L)
+        assertEquals(RecurringSchedule.Monthly(1), recurringFrom("r", legacy)?.schedule)
+    }
+
+    @Test
+    fun `unknown frequency skips the document`() {
+        val future = mapOf("name" to "Rent", "amount" to 120_000L, "dayOfMonth" to 1L, "frequency" to "Biweekly")
+        assertNull(recurringFrom("r", future))
     }
 
     @Test

@@ -12,8 +12,12 @@ import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Recurring
+import com.artemkhateev.finance.data.model.RecurringFrequency
+import com.artemkhateev.finance.data.model.RecurringSchedule
 import com.artemkhateev.finance.data.model.Transaction
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.Month
 
 /*
  * Документы Firestore ↔ модели. Суммы хранятся целыми центами, даты — строками ISO
@@ -82,11 +86,19 @@ internal fun transactionFrom(id: String, data: Map<String, Any?>): Transaction? 
     )
 }.getOrNull()
 
+/** День недели и месяц хранятся числами по ISO: понедельник и январь — 1. */
 internal fun Recurring.toMap(): Map<String, Any?> = mapOf(
     "name" to name,
     "emoji" to emoji,
     "amount" to amount.minor,
-    "dayOfMonth" to dayOfMonth,
+    "frequency" to schedule.frequency.name,
+    "dayOfWeek" to (schedule as? RecurringSchedule.Weekly)?.dayOfWeek?.value,
+    "month" to (schedule as? RecurringSchedule.Yearly)?.month?.value,
+    "dayOfMonth" to when (val current = schedule) {
+        is RecurringSchedule.Monthly -> current.dayOfMonth
+        is RecurringSchedule.Yearly -> current.dayOfMonth
+        is RecurringSchedule.Weekly -> null
+    },
     "categoryId" to categoryId,
 )
 
@@ -96,10 +108,24 @@ internal fun recurringFrom(id: String, data: Map<String, Any?>): Recurring? = ru
         name = data["name"] as String,
         emoji = data["emoji"] as? String ?: "🔁",
         amount = Money((data["amount"] as Number).toLong()),
-        dayOfMonth = (data["dayOfMonth"] as Number).toInt(),
+        schedule = scheduleFrom(data),
         categoryId = data["categoryId"] as? String,
     )
 }.getOrNull()
+
+/**
+ * Документы, записанные до появления частоты, — ежемесячные. Незнакомая частота (из более новой версии)
+ * пропускает документ: посчитать её как ежемесячную значило бы показать неверные суммы.
+ */
+private fun scheduleFrom(data: Map<String, Any?>): RecurringSchedule {
+    fun number(key: String) = (data[key] as Number).toInt()
+    return when (val frequency = data["frequency"] as? String ?: RecurringFrequency.Monthly.name) {
+        RecurringFrequency.Weekly.name -> RecurringSchedule.Weekly(DayOfWeek.of(number("dayOfWeek")))
+        RecurringFrequency.Monthly.name -> RecurringSchedule.Monthly(number("dayOfMonth"))
+        RecurringFrequency.Yearly.name -> RecurringSchedule.Yearly(Month.of(number("month")), number("dayOfMonth"))
+        else -> error("Unknown frequency $frequency")
+    }
+}
 
 internal fun Holding.toMap(): Map<String, Any?> = mapOf(
     "accountId" to accountId,

@@ -5,10 +5,13 @@ import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.CategoryTone
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.Recurring
+import com.artemkhateev.finance.data.model.RecurringSchedule
 import com.artemkhateev.finance.data.model.Transaction
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.Month
 
 class DashboardStateTest {
 
@@ -52,11 +55,32 @@ class DashboardStateTest {
     @Test
     fun `bill paid on its due day is not overspending`() {
         val rent = Category("rent", "Rent", "🔑", CategoryTone.Orange, monthlyBudget = Money.of(1000.0))
-        val bill = Recurring("r", "Rent", "🏠", Money.of(1000.0), dayOfMonth = 1, categoryId = "rent")
+        val bill = Recurring("r", "Rent", "🏠", Money.of(1000.0), RecurringSchedule.Monthly(1), categoryId = "rent")
         val state = buildDashboard(today, listOf(rent), listOf(tx(1, -1000.0, category = "rent")), listOf(bill))
 
         assertEquals(BudgetStatus.OnTrack, state.budgets.single().status)
         assertEquals(Money.Zero, state.spending.paceDelta)
+    }
+
+    @Test
+    fun `weekly bill counts on each of its days`() {
+        // Понедельники сентября 2026 года — 7, 14, 21 и 28-е: четыре списания по €50 из бюджета €300.
+        val box = Recurring("r", "Veggie box", "🥕", Money.of(50.0), RecurringSchedule.Weekly(DayOfWeek.MONDAY), categoryId = "food")
+        val state = buildDashboard(today, listOf(food), listOf(tx(7, -50.0), tx(14, -50.0)), listOf(box))
+
+        // 7-го: одно списание и седьмая часть оставшихся €100 за месяц.
+        assertEquals(5_000L + 10_000L * 7 / 30, state.spending.pace[6])
+        // К 15-му ожидалось €150 (два списания и половина остатка), потрачено €100.
+        assertEquals(Money.of(50.0), state.spending.paceDelta)
+        assertEquals(BudgetStatus.OnTrack, state.budgets.single().status)
+    }
+
+    @Test
+    fun `yearly bill of another month leaves the pace even`() {
+        val insurance = Recurring("r", "Insurance", "☂️", Money.of(250.0), RecurringSchedule.Yearly(Month.MARCH, 1), categoryId = "food")
+        val state = buildDashboard(today, listOf(food), emptyList(), listOf(insurance))
+
+        assertEquals(15_000L, state.spending.pace[14])
     }
 
     @Test

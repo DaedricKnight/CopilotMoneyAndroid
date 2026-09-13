@@ -15,11 +15,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -85,8 +87,7 @@ class RecurringsViewModel(
     val draft: StateFlow<RecurringDraft?> = mutableDraft.asStateFlow()
 
     fun startNew() {
-        // Платёж обычно заводят в день списания — его и подставляем.
-        mutableDraft.value = RecurringDraft(dayOfMonth = today().dayOfMonth)
+        mutableDraft.value = RecurringDraft.startingOn(today())
     }
 
     fun startEdit(recurring: Recurring) {
@@ -123,26 +124,40 @@ fun RecurringsScreen(
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val categories by viewModel.expenseCategories.collectAsStateWithLifecycle()
     val state = loaded ?: return
+    val colors = FinanceTheme.colors
 
     Box(Modifier.fillMaxSize()) {
-        if (state.thisMonth.isEmpty()) {
+        if (state.thisMonth.isEmpty() && state.later.isEmpty()) {
             EmptyState("No recurring payments", "Tap + to add rent, bills and subscriptions.")
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                // Запас снизу, чтобы последний ряд плиток не закрывала кнопка «+».
+                // Запас снизу, чтобы последний ряд не закрывала кнопка «+».
                 contentPadding = screenContentPadding(extraBottom = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item(key = "summary") { SummaryCard(state) }
-                item(key = "month-header") { SectionHeader("This month") }
-                items(state.thisMonth.chunked(3), key = { row -> row.first().recurring.id }) { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        row.forEach { tile ->
-                            RecurringTile(tile, onClick = { viewModel.startEdit(tile.recurring) }, modifier = Modifier.weight(1f))
+                if (state.thisMonth.isNotEmpty()) {
+                    item(key = "month-header") { SectionHeader("This month") }
+                    items(state.thisMonth.chunked(3), key = { row -> row.first().recurring.id }) { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { tile ->
+                                RecurringTile(tile, onClick = { viewModel.startEdit(tile.recurring) }, modifier = Modifier.weight(1f))
+                            }
+                            // Неполный последний ряд: плитки сохраняют ширину трети.
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        // Неполный последний ряд: плитки сохраняют ширину трети.
-                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+                if (state.later.isNotEmpty()) {
+                    item(key = "later-header") { SectionHeader("Later") }
+                    item(key = "later") {
+                        FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
+                            state.later.forEachIndexed { index, upcoming ->
+                                if (index > 0) HorizontalDivider(color = colors.border)
+                                UpcomingRow(upcoming, onClick = { viewModel.startEdit(upcoming.recurring) })
+                            }
+                        }
                     }
                 }
             }
@@ -221,7 +236,7 @@ private fun RecurringTile(tile: RecurringTileUi, onClick: () -> Unit, modifier: 
                 overflow = TextOverflow.Ellipsis,
             )
             MoneyText(tile.amount, style = typography.bodySecondary, color = colors.textPrimary)
-            Text(tile.dueLabel, style = typography.caption, color = colors.textSecondary)
+            Text(tile.dueLabel, style = typography.caption, color = colors.textSecondary, maxLines = 1)
         }
         if (tile.paid) {
             PaidCorner(tile.tone?.color() ?: colors.accent, Modifier.align(Alignment.TopEnd))
@@ -229,7 +244,36 @@ private fun RecurringTile(tile: RecurringTileUi, onClick: () -> Unit, modifier: 
     }
 }
 
-/** Уголок с галочкой в цвете категории: платёж этого месяца уже прошёл. */
+/** Годовой платёж другого месяца: строка с датой следующего списания. */
+@Composable
+private fun UpcomingRow(upcoming: UpcomingRecurringUi, onClick: () -> Unit) {
+    val colors = FinanceTheme.colors
+    val typography = FinanceTheme.typography
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(upcoming.recurring.emoji, fontSize = 20.sp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = upcoming.recurring.name,
+                style = typography.body,
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text("Yearly · ${upcoming.dueLabel}", style = typography.caption, color = colors.textSecondary)
+        }
+        Spacer(Modifier.width(8.dp))
+        MoneyText(upcoming.recurring.amount)
+    }
+}
+
+/** Уголок с галочкой в цвете категории: все списания этого месяца уже прошли. */
 @Composable
 private fun PaidCorner(tone: Color, modifier: Modifier = Modifier) {
     Box(

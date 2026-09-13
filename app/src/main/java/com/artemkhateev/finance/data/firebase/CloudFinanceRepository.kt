@@ -230,7 +230,7 @@ class CloudFinanceRepository(
         val batch = db.batch()
         DemoData.categories.forEach { batch.set(user.collection(CATEGORIES).document(it.id), it.toMap()) }
         DemoData.accounts.forEach { batch.set(user.collection(ACCOUNTS).document(it.id), it.toMap()) }
-        DemoData.recurrings.forEach { batch.set(user.collection(RECURRINGS).document(it.id), it.toMap()) }
+        DemoData.recurrings(day).forEach { batch.set(user.collection(RECURRINGS).document(it.id), it.toMap()) }
         DemoData.transactions(day).forEach { batch.set(user.collection(TRANSACTIONS).document(it.id), it.toMap()) }
         DemoData.holdings(day).forEach { batch.set(user.collection(HOLDINGS).document(it.id), it.toMap()) }
         DemoData.portfolioHistory(day).forEach {

@@ -38,20 +38,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artemkhateev.finance.data.model.Category
+import com.artemkhateev.finance.data.model.RecurringFrequency
 import com.artemkhateev.finance.ui.components.CategoryChip
 import com.artemkhateev.finance.ui.components.CenteredTextField
 import com.artemkhateev.finance.ui.components.FieldLabel
 import com.artemkhateev.finance.ui.components.MoneyInputField
 import com.artemkhateev.finance.ui.components.PillButton
+import com.artemkhateev.finance.ui.components.SegmentedControl
 import com.artemkhateev.finance.ui.format.lastGrapheme
-import com.artemkhateev.finance.ui.format.ordinalDay
+import com.artemkhateev.finance.ui.format.monthShort
+import com.artemkhateev.finance.ui.format.weekdayShort
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
+import java.time.DayOfWeek
+import java.time.Month
 
 /** Эмодзи, которые чаще всего нужны счетам и подпискам: набирать их с клавиатуры дольше. */
 private val EmojiSuggestions = listOf(
     "🏠", "🔑", "💡", "⚡", "🔥", "🚰", "📶", "📱", "📺", "🎧", "☁️", "🎮",
-    "🏋️", "🚙", "☂️", "🏥", "🎓", "👶", "🐶", "💳", "🧾", "🔁",
+    "🏋️", "🚙", "☂️", "🏥", "🎓", "👶", "🐶", "🥕", "🧹", "💳", "🧾", "🔁",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -126,15 +131,40 @@ fun RecurringEditorSheet(
                 imeAction = ImeAction.Done,
             )
 
-            FieldLabel("Day of month")
-            DayOfMonthGrid(selected = draft.dayOfMonth, onSelect = { day -> onChange { it.copy(dayOfMonth = day) } })
-            draft.dayOfMonth?.let { day ->
+            FieldLabel("Repeats")
+            SegmentedControl(
+                options = RecurringFrequency.entries.map { it.label() },
+                selectedIndex = draft.frequency.ordinal,
+                onSelect = { index -> onChange { it.copy(frequency = RecurringFrequency.entries[index]) } },
+            )
+            when (draft.frequency) {
+                RecurringFrequency.Weekly -> DayOfWeekRow(
+                    selected = draft.dayOfWeek,
+                    onSelect = { day -> onChange { it.copy(dayOfWeek = day) } },
+                )
+                RecurringFrequency.Monthly -> DayOfMonthGrid(
+                    selected = draft.dayOfMonth,
+                    lastDay = 31,
+                    onSelect = { day -> onChange { it.copy(dayOfMonth = day) } },
+                )
+                RecurringFrequency.Yearly -> {
+                    MonthGrid(
+                        selected = draft.month,
+                        // Числа, которого в месяце нет, выбранным не оставляем: 31 апреля становится 30-м.
+                        onSelect = { month ->
+                            onChange { it.copy(month = month, dayOfMonth = it.dayOfMonth?.coerceAtMost(month.maxLength())) }
+                        },
+                    )
+                    DayOfMonthGrid(
+                        selected = draft.dayOfMonth,
+                        lastDay = draft.month?.maxLength() ?: 31,
+                        onSelect = { day -> onChange { it.copy(dayOfMonth = day) } },
+                    )
+                }
+            }
+            draft.schedule?.let { schedule ->
                 Text(
-                    text = if (day > 28) {
-                        "Every month on the ${ordinalDay(day)}, or on the last day of shorter months"
-                    } else {
-                        "Every month on the ${ordinalDay(day)}"
-                    },
+                    text = schedule.describe(),
                     style = typography.caption,
                     color = colors.textSecondary,
                     textAlign = TextAlign.Center,
@@ -171,7 +201,7 @@ fun RecurringEditorSheet(
                 filled = true,
                 modifier = Modifier.padding(top = 8.dp),
             )
-            // Пустые поля видны и так; объясняем только неверную сумму.
+            // Пустые поля видны и так; объясняем только неверную сумму и невыбранный день.
             if (problem != null && draft.name.isNotBlank() && draft.amountText.isNotBlank()) {
                 Text(problem, style = typography.bodySecondary, color = colors.negativeText, textAlign = TextAlign.Center)
             }
@@ -204,35 +234,66 @@ fun RecurringEditorSheet(
     }
 }
 
-/** Дни месяца неделями по семь, как в календаре, но без дней недели: платёж привязан к числу. */
+private fun RecurringFrequency.label(): String = when (this) {
+    RecurringFrequency.Weekly -> "Weekly"
+    RecurringFrequency.Monthly -> "Monthly"
+    RecurringFrequency.Yearly -> "Yearly"
+}
+
 @Composable
-private fun DayOfMonthGrid(selected: Int?, onSelect: (Int) -> Unit) {
-    val colors = FinanceTheme.colors
-    val typography = FinanceTheme.typography
+private fun DayOfWeekRow(selected: DayOfWeek?, onSelect: (DayOfWeek) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        DayOfWeek.values().forEach { day ->
+            ChoiceCell(weekdayShort(day), day == selected, onClick = { onSelect(day) }, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun MonthGrid(selected: Month?, onSelect: (Month) -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        (1..31).chunked(7).forEach { week ->
+        Month.values().toList().chunked(6).forEach { months ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                months.forEach { month ->
+                    ChoiceCell(monthShort(month), month == selected, onClick = { onSelect(month) }, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+/** Числа месяца неделями по семь, как в календаре, но без дней недели: платёж привязан к числу. */
+@Composable
+private fun DayOfMonthGrid(selected: Int?, lastDay: Int, onSelect: (Int) -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        (1..lastDay).chunked(7).forEach { week ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 week.forEach { day ->
-                    val isSelected = day == selected
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                            .clip(CircleShape)
-                            .background(if (isSelected) colors.accent else Color.Transparent)
-                            .clickable { onSelect(day) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = day.toString(),
-                            style = typography.bodySecondary,
-                            color = if (isSelected) colors.background else colors.textPrimary,
-                        )
-                    }
+                    ChoiceCell(day.toString(), day == selected, onClick = { onSelect(day) }, modifier = Modifier.weight(1f))
                 }
-                // Неполная последняя неделя: дни сохраняют ширину седьмой части.
+                // Неполная последняя неделя: числа сохраняют ширину седьмой части.
                 repeat(7 - week.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+    }
+}
+
+@Composable
+private fun ChoiceCell(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = FinanceTheme.colors
+    Box(
+        modifier = modifier
+            .height(40.dp)
+            .clip(CircleShape)
+            .background(if (selected) colors.accent else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = FinanceTheme.typography.bodySecondary,
+            color = if (selected) colors.background else colors.textPrimary,
+            maxLines = 1,
+        )
     }
 }

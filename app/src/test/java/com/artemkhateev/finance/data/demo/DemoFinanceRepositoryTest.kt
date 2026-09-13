@@ -8,6 +8,7 @@ import com.artemkhateev.finance.data.model.GoalContribution
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Recurring
+import com.artemkhateev.finance.data.model.RecurringSchedule
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.data.model.sumOfMoney
 import com.artemkhateev.finance.data.model.value
@@ -86,7 +87,7 @@ class DemoFinanceRepositoryTest {
 
     @Test
     fun `recurring payments can be added and deleted`() = runBlocking {
-        repository.saveRecurring(Recurring("", "Internet", "📶", Money(2_999), dayOfMonth = 25))
+        repository.saveRecurring(Recurring("", "Internet", "📶", Money(2_999), RecurringSchedule.Monthly(25)))
         val added = repository.recurrings.first().single { it.name == "Internet" }
         assertTrue(added.id.isNotBlank())
 

@@ -1,7 +1,10 @@
 package com.artemkhateev.finance.ui.format
 
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.Month
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.util.Locale
 
 private val dayFormat = DateTimeFormatter.ofPattern("EEEE, MMM d", Locale.US)
@@ -31,6 +34,15 @@ fun historyDate(date: LocalDate, today: LocalDate): String = when {
     date.year == today.year -> shortDate(date)
     else -> longDate(date)
 }
+
+/** «Mon». */
+fun weekdayShort(day: DayOfWeek): String = day.getDisplayName(TextStyle.SHORT, Locale.US)
+
+/** «Monday». */
+fun weekdayName(day: DayOfWeek): String = day.getDisplayName(TextStyle.FULL, Locale.US)
+
+/** «Mar». */
+fun monthShort(month: Month): String = month.getDisplayName(TextStyle.SHORT, Locale.US)
 
 /** «Sep 1 – Sep 12». */
 fun periodLabel(start: LocalDate, end: LocalDate): String = "${shortDate(start)} – ${shortDate(end)}"

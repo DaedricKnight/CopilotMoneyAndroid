@@ -19,6 +19,7 @@ import com.artemkhateev.finance.data.model.NewestFirst
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.QUANTITY_SCALE
 import com.artemkhateev.finance.data.model.Recurring
+import com.artemkhateev.finance.data.model.RecurringSchedule
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.data.model.newAccountId
 import com.artemkhateev.finance.data.model.newCategoryId
@@ -44,7 +45,7 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
     private val categoriesState = MutableStateFlow(DemoData.categories)
     private val accountsState = MutableStateFlow(DemoData.accounts)
     private val transactionsState = MutableStateFlow(DemoData.transactions(today))
-    private val recurringsState = MutableStateFlow(DemoData.recurrings)
+    private val recurringsState = MutableStateFlow(DemoData.recurrings(today))
     private val holdingsState = MutableStateFlow(DemoData.holdings(today))
     private val historyState = MutableStateFlow(DemoData.portfolioHistory(today))
     private val goalsState = MutableStateFlow(DemoData.goals(today))
@@ -179,14 +180,20 @@ internal object DemoData {
         Account("brokerage", "Brokerage", "Demo Invest", AccountType.Investment, Money.Zero),
     )
 
-    val recurrings = listOf(
-        Recurring("r-rent", "Rent", "🏠", Money.of(1200.0), dayOfMonth = 1, categoryId = "rent"),
-        Recurring("r-music", "Music streaming", "🎧", Money.of(10.99), dayOfMonth = 3, categoryId = "subscriptions"),
-        Recurring("r-car", "Car payment", "🚙", Money.of(95.0), dayOfMonth = 5, categoryId = "car"),
-        Recurring("r-power", "Electricity", "⚡", Money.of(75.0), dayOfMonth = 8, categoryId = "utilities"),
-        Recurring("r-water", "Water", "🚰", Money.of(32.0), dayOfMonth = 12, categoryId = "utilities"),
-        Recurring("r-insurance", "Insurance", "☂️", Money.of(45.9), dayOfMonth = 15, categoryId = "utilities"),
-        Recurring("r-gym", "Gym", "🏋️", Money.of(39.0), dayOfMonth = 20, categoryId = "subscriptions"),
+    /** Ежемесячные счета, еженедельная доставка овощей и годовая подписка, которая спишется через два месяца. */
+    fun recurrings(today: LocalDate) = listOf(
+        Recurring("r-rent", "Rent", "🏠", Money.of(1200.0), RecurringSchedule.Monthly(1), categoryId = "rent"),
+        Recurring("r-music", "Music streaming", "🎧", Money.of(10.99), RecurringSchedule.Monthly(3), categoryId = "subscriptions"),
+        Recurring("r-car", "Car payment", "🚙", Money.of(95.0), RecurringSchedule.Monthly(5), categoryId = "car"),
+        Recurring("r-power", "Electricity", "⚡", Money.of(75.0), RecurringSchedule.Monthly(8), categoryId = "utilities"),
+        Recurring("r-water", "Water", "🚰", Money.of(32.0), RecurringSchedule.Monthly(12), categoryId = "utilities"),
+        Recurring("r-insurance", "Insurance", "☂️", Money.of(45.9), RecurringSchedule.Monthly(15), categoryId = "utilities"),
+        Recurring("r-gym", "Gym", "🏋️", Money.of(39.0), RecurringSchedule.Monthly(20), categoryId = "subscriptions"),
+        Recurring("r-veggies", "Veggie box", "🥕", Money.of(18.5), RecurringSchedule.Weekly(DayOfWeek.SATURDAY), categoryId = "groceries"),
+        Recurring(
+            "r-cloud", "Cloud storage", "☁️", Money.of(99.99),
+            RecurringSchedule.Yearly(today.plusMonths(2).month, 20), categoryId = "subscriptions",
+        ),
     )
 
     fun holdings(today: LocalDate) = listOf(
@@ -283,6 +290,7 @@ internal object DemoData {
                 15 -> add(date, "Insurance", -45.9, "utilities", accountId = "checking")
                 20 -> add(date, "Gym", -39.0, "subscriptions")
             }
+            if (date.dayOfWeek == DayOfWeek.SATURDAY) add(date, "Veggie box", -18.5, "groceries")
             val weekday = date.dayOfWeek != DayOfWeek.SATURDAY && date.dayOfWeek != DayOfWeek.SUNDAY
             if (weekday && chance(2)) add(date, coffee.random(random), -cents(2.5, 4.8), "coffee")
             if (chance(3)) add(date, groceries.random(random), -cents(12.0, 68.0), "groceries")

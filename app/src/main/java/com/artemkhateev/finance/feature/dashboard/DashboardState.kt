@@ -5,6 +5,7 @@ import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.dueDates
 import com.artemkhateev.finance.data.model.sumOfMoney
 import com.artemkhateev.finance.ui.format.dayLabel
 import java.time.LocalDate
@@ -43,6 +44,9 @@ data class DashboardUiState(
     val budgets: List<BudgetRingUi>,
 )
 
+/** Одно списание регулярного платежа в этом месяце: день и сумма в центах. */
+private data class BillCharge(val day: Int, val cents: Long)
+
 fun buildDashboard(
     today: LocalDate,
     categories: List<Category>,
@@ -52,12 +56,13 @@ fun buildDashboard(
     val categoryById = categories.associateBy { it.id }
     val monthStart = today.withDayOfMonth(1)
     val daysInMonth = today.lengthOfMonth()
+    val monthEnd = today.withDayOfMonth(daysInMonth)
 
     // Ожидаемые расходы к концу дня: регулярные платежи — в дни списания, остаток
     // лимита — равномерно. Иначе аренда первого числа весь месяц выглядит перерасходом.
-    fun expectedBy(day: Int, limit: Long, bills: List<Recurring>): Long {
-        val billsTotal = bills.sumOf { it.amount.minor }
-        val billsDue = bills.filter { minOf(it.dayOfMonth, daysInMonth) <= day }.sumOf { it.amount.minor }
+    fun expectedBy(day: Int, limit: Long, charges: List<BillCharge>): Long {
+        val billsTotal = charges.sumOf { it.cents }
+        val billsDue = charges.filter { it.day <= day }.sumOf { it.cents }
         return billsDue + (limit - billsTotal).coerceAtLeast(0L) * day / daysInMonth
     }
 
@@ -71,9 +76,14 @@ fun buildDashboard(
 
     val budgeted = categories.filter { it.kind == CategoryKind.Expense && (it.monthlyBudget?.minor ?: 0L) > 0L }
     val budget = budgeted.sumOfMoney { it.monthlyBudget!! }
-    val billsByCategory = recurrings.groupBy { it.categoryId }
-    val budgetedBills = budgeted.flatMap { billsByCategory[it.id].orEmpty() }
-    val pace = (1..daysInMonth).map { day -> expectedBy(day, budget.minor, budgetedBills) }
+    // Еженедельный платёж списывается в месяце несколько раз, годовой — только в своём месяце.
+    val chargesByCategory = recurrings
+        .groupBy { it.categoryId }
+        .mapValues { (_, bills) ->
+            bills.flatMap { bill -> bill.dueDates(monthStart, monthEnd).map { BillCharge(it.dayOfMonth, bill.amount.minor) } }
+        }
+    val budgetedCharges = budgeted.flatMap { chargesByCategory[it.id].orEmpty() }
+    val pace = (1..daysInMonth).map { day -> expectedBy(day, budget.minor, budgetedCharges) }
 
     val spentByDay = LongArray(today.dayOfMonth)
     expenses.forEach { spentByDay[it.date.dayOfMonth - 1] -= it.amount.minor }
@@ -87,7 +97,7 @@ fun buildDashboard(
         .map { category ->
             val limit = category.monthlyBudget!!.minor
             val used = spentByCategory[category.id] ?: 0L
-            val expected = expectedBy(today.dayOfMonth, limit, billsByCategory[category.id].orEmpty())
+            val expected = expectedBy(today.dayOfMonth, limit, chargesByCategory[category.id].orEmpty())
             BudgetRingUi(
                 categoryId = category.id,
                 emoji = category.emoji,

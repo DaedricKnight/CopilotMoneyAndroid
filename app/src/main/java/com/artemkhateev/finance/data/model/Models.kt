@@ -2,7 +2,11 @@ package com.artemkhateev.finance.data.model
 
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.Month
+import java.time.YearMonth
+import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 import kotlin.math.roundToLong
 
@@ -94,19 +98,63 @@ val NewestFirst: Comparator<Transaction> =
 fun newTransactionId(nowMillis: Long = System.currentTimeMillis()): String =
     "m-$nowMillis-${UUID.randomUUID().toString().take(8)}"
 
+enum class RecurringFrequency { Weekly, Monthly, Yearly }
+
+/** Когда списывается регулярный платёж. Число после конца короткого месяца — его последний день. */
+sealed interface RecurringSchedule {
+    val frequency: RecurringFrequency
+
+    data class Weekly(val dayOfWeek: DayOfWeek) : RecurringSchedule {
+        override val frequency: RecurringFrequency get() = RecurringFrequency.Weekly
+    }
+
+    /** [dayOfMonth] — от 1 до 31. */
+    data class Monthly(val dayOfMonth: Int) : RecurringSchedule {
+        override val frequency: RecurringFrequency get() = RecurringFrequency.Monthly
+    }
+
+    /** 29 февраля в невисокосный год приходится на 28-е. */
+    data class Yearly(val month: Month, val dayOfMonth: Int) : RecurringSchedule {
+        override val frequency: RecurringFrequency get() = RecurringFrequency.Yearly
+    }
+}
+
 data class Recurring(
     val id: String,
     val name: String,
     val emoji: String,
     /** Ожидаемое списание, положительное. */
     val amount: Money,
-    /** День списания, 1–31: в коротком месяце платёж на 31-е приходится на последний день. */
-    val dayOfMonth: Int,
+    val schedule: RecurringSchedule,
     val categoryId: String? = null,
 )
 
 fun newRecurringId(nowMillis: Long = System.currentTimeMillis()): String =
     "r-$nowMillis-${UUID.randomUUID().toString().take(8)}"
+
+/** Даты списаний с [start] по [end] включительно, по возрастанию. */
+fun RecurringSchedule.dueDates(start: LocalDate, end: LocalDate): List<LocalDate> {
+    if (end.isBefore(start)) return emptyList()
+    val candidates = when (this) {
+        is RecurringSchedule.Weekly ->
+            generateSequence(start.with(TemporalAdjusters.nextOrSame(dayOfWeek))) { it.plusWeeks(1) }
+                .takeWhile { !it.isAfter(end) }
+                .toList()
+        is RecurringSchedule.Monthly ->
+            generateSequence(YearMonth.from(start)) { it.plusMonths(1) }
+                .takeWhile { !it.isAfter(YearMonth.from(end)) }
+                .map { it.atDay(minOf(dayOfMonth, it.lengthOfMonth())) }
+                .toList()
+        is RecurringSchedule.Yearly ->
+            (start.year..end.year).map { year ->
+                val yearMonth = YearMonth.of(year, month)
+                yearMonth.atDay(minOf(dayOfMonth, yearMonth.lengthOfMonth()))
+            }
+    }
+    return candidates.filter { !it.isBefore(start) && !it.isAfter(end) }
+}
+
+fun Recurring.dueDates(start: LocalDate, end: LocalDate): List<LocalDate> = schedule.dueDates(start, end)
 
 /** Количество в позициях хранится в миллионных долях: у фондов и крипты бывают дробные доли. */
 const val QUANTITY_DECIMALS = 6
