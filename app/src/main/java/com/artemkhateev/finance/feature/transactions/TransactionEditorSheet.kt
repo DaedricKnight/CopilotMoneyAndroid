@@ -13,14 +13,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +36,7 @@ import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.transactionsWindowStart
+import com.artemkhateev.finance.ui.components.BoundedDatePickerDialog
 import com.artemkhateev.finance.ui.components.CategoryChip
 import com.artemkhateev.finance.ui.components.CenteredTextField
 import com.artemkhateev.finance.ui.components.FieldLabel
@@ -52,9 +48,7 @@ import com.artemkhateev.finance.ui.format.shortDate
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
 import kotlinx.coroutines.delay
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneOffset
 
 /** Шторка добавления и правки транзакции: крупная сумма, мерчант и заметка — как в карточке транзакции референса. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -211,8 +205,9 @@ fun TransactionEditorSheet(
     }
 
     if (pickingDate) {
-        TransactionDatePicker(
+        BoundedDatePickerDialog(
             initial = draft.date,
+            // Раньше окна экраны транзакцию не покажут, а в будущем расходов ещё нет.
             earliest = transactionsWindowStart(today),
             latest = today,
             onPick = { picked ->
@@ -223,41 +218,3 @@ fun TransactionEditorSheet(
         )
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TransactionDatePicker(
-    initial: LocalDate,
-    earliest: LocalDate,
-    latest: LocalDate,
-    onPick: (LocalDate) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val state = rememberDatePickerState(
-        initialSelectedDateMillis = initial.toUtcMillis(),
-        yearRange = earliest.year..latest.year,
-        selectableDates = object : SelectableDates {
-            // Раньше окна экраны транзакцию не покажут, а в будущем расходов ещё нет.
-            override fun isSelectableDate(utcTimeMillis: Long): Boolean {
-                val date = utcTimeMillis.toUtcDate()
-                return !date.isBefore(earliest) && !date.isAfter(latest)
-            }
-        },
-    )
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = { state.selectedDateMillis?.let { onPick(it.toUtcDate()) } ?: onDismiss() }) {
-                Text("OK")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    ) {
-        DatePicker(state = state)
-    }
-}
-
-// DatePicker работает с полночью по UTC, а даты транзакций — без часового пояса.
-private fun LocalDate.toUtcMillis(): Long = atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-
-private fun Long.toUtcDate(): LocalDate = Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()

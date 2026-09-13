@@ -35,10 +35,10 @@ import com.artemkhateev.finance.feature.auth.SignInScreen
 import com.artemkhateev.finance.feature.cashflow.CashFlowScreen
 import com.artemkhateev.finance.feature.categories.CategoriesScreen
 import com.artemkhateev.finance.feature.dashboard.DashboardScreen
+import com.artemkhateev.finance.feature.goals.GoalsScreen
 import com.artemkhateev.finance.feature.investments.InvestmentsScreen
 import com.artemkhateev.finance.feature.recurrings.RecurringsScreen
 import com.artemkhateev.finance.feature.transactions.TransactionsScreen
-import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.PillTabRow
 import com.artemkhateev.finance.ui.components.appBackgroundBrush
 import com.artemkhateev.finance.ui.navigation.AppTab
@@ -79,15 +79,15 @@ private fun HomeScreen() {
         )
         Spacer(Modifier.height(8.dp))
         HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
-            when (val tab = tabs[page]) {
+            when (tabs[page]) {
                 AppTab.CashFlow -> CashFlowScreen()
                 AppTab.Accounts -> AccountsScreen()
                 AppTab.Investments -> InvestmentsScreen()
                 AppTab.Dashboard -> DashboardScreen()
                 AppTab.Transactions -> TransactionsScreen()
                 AppTab.Categories -> CategoriesScreen()
+                AppTab.Goals -> GoalsScreen()
                 AppTab.Recurrings -> RecurringsScreen()
-                else -> EmptyState(tab.title, "This section isn't built yet")
             }
         }
     }

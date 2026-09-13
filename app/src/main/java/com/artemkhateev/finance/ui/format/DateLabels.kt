@@ -6,6 +6,8 @@ import java.util.Locale
 
 private val dayFormat = DateTimeFormatter.ofPattern("EEEE, MMM d", Locale.US)
 private val shortDayFormat = DateTimeFormatter.ofPattern("MMM d", Locale.US)
+private val longDayFormat = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
+private val monthYearFormat = DateTimeFormatter.ofPattern("MMM yyyy", Locale.US)
 
 fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {
     today -> "Today"
@@ -15,6 +17,20 @@ fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {
 
 /** «Sep 12». */
 fun shortDate(date: LocalDate): String = date.format(shortDayFormat)
+
+/** «Jun 1, 2027». */
+fun longDate(date: LocalDate): String = date.format(longDayFormat)
+
+/** «Jun 2027». */
+fun monthYear(date: LocalDate): String = date.format(monthYearFormat)
+
+/** Дата в истории: «Today», «Yesterday», «Sep 2», а из другого года — «Dec 2, 2025». */
+fun historyDate(date: LocalDate, today: LocalDate): String = when {
+    date == today -> "Today"
+    date == today.minusDays(1) -> "Yesterday"
+    date.year == today.year -> shortDate(date)
+    else -> longDate(date)
+}
 
 /** «Sep 1 – Sep 12». */
 fun periodLabel(start: LocalDate, end: LocalDate): String = "${shortDate(start)} – ${shortDate(end)}"

@@ -10,6 +10,9 @@ import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryByName
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.CategoryTone
+import com.artemkhateev.finance.data.model.ContributionsNewestFirst
+import com.artemkhateev.finance.data.model.Goal
+import com.artemkhateev.finance.data.model.GoalContribution
 import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.NewestFirst
@@ -19,6 +22,8 @@ import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.data.model.newAccountId
 import com.artemkhateev.finance.data.model.newCategoryId
+import com.artemkhateev.finance.data.model.newContributionId
+import com.artemkhateev.finance.data.model.newGoalId
 import com.artemkhateev.finance.data.model.newHoldingId
 import com.artemkhateev.finance.data.model.newTransactionId
 import com.artemkhateev.finance.data.model.value
@@ -40,6 +45,8 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
     private val transactionsState = MutableStateFlow(DemoData.transactions(today))
     private val holdingsState = MutableStateFlow(DemoData.holdings(today))
     private val historyState = MutableStateFlow(DemoData.portfolioHistory(today))
+    private val goalsState = MutableStateFlow(DemoData.goals(today))
+    private val contributionsState = MutableStateFlow(DemoData.goalContributions(today))
 
     override val categories: Flow<List<Category>> = categoriesState.map { it.sortedWith(CategoryByName) }
     override val accounts: Flow<List<Account>> = accountsState.map { it.sortedWith(AccountByName) }
@@ -47,6 +54,8 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
     override val recurrings: Flow<List<Recurring>> = MutableStateFlow(DemoData.recurrings)
     override val holdings: Flow<List<Holding>> = holdingsState
     override val portfolioHistory: Flow<List<PortfolioSnapshot>> = historyState
+    override val goals: Flow<List<Goal>> = goalsState
+    override val goalContributions: Flow<List<GoalContribution>> = contributionsState
 
     override suspend fun markReviewed(transactionIds: Collection<String>) {
         val ids = transactionIds.toSet()
@@ -104,6 +113,27 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
         historyState.update { list ->
             (list.filterNot { it.date == snapshot.date } + snapshot).sortedBy { it.date.toEpochDay() }
         }
+    }
+
+    override suspend fun saveGoal(goal: Goal) {
+        val saved = if (goal.id.isBlank()) goal.copy(id = newGoalId()) else goal
+        goalsState.update { list -> list.filterNot { it.id == saved.id } + saved }
+    }
+
+    override suspend fun deleteGoal(goalId: String) {
+        goalsState.update { list -> list.filterNot { it.id == goalId } }
+        contributionsState.update { list -> list.filterNot { it.goalId == goalId } }
+    }
+
+    override suspend fun saveContribution(contribution: GoalContribution) {
+        val saved = if (contribution.id.isBlank()) contribution.copy(id = newContributionId()) else contribution
+        contributionsState.update { list ->
+            (list.filterNot { it.id == saved.id } + saved).sortedWith(ContributionsNewestFirst)
+        }
+    }
+
+    override suspend fun deleteContribution(contributionId: String) {
+        contributionsState.update { list -> list.filterNot { it.id == contributionId } }
     }
 
     private fun applyBalanceChanges(changes: Map<String, Long>) {
@@ -171,6 +201,34 @@ internal object DemoData {
             value /= 1 + (random.nextDouble() * 0.024 - 0.011)
         }
         return points.asReversed()
+    }
+
+    /** Цели на все случаи: без срока, по плану, с отставанием и уже достигнутая. */
+    fun goals(today: LocalDate) = listOf(
+        Goal("g-emergency", "Emergency fund", "🛟", CategoryTone.Teal, Money.of(10_000.0), targetDate = null, startDate = today.minusMonths(8)),
+        Goal("g-japan", "Trip to Japan", "🗾", CategoryTone.Pink, Money.of(4_000.0), targetDate = today.plusMonths(9), startDate = today.minusMonths(5)),
+        Goal("g-laptop", "New laptop", "💻", CategoryTone.Blue, Money.of(2_400.0), targetDate = today.plusMonths(3), startDate = today.minusMonths(6)),
+        Goal("g-concert", "Concert tickets", "🎟️", CategoryTone.Purple, Money.of(180.0), targetDate = today.minusDays(20), startDate = today.minusMonths(3)),
+    )
+
+    fun goalContributions(today: LocalDate): List<GoalContribution> {
+        val result = mutableListOf<GoalContribution>()
+
+        fun monthly(goalId: String, months: Int, amount: Double, day: Int) {
+            for (monthsAgo in months - 1 downTo 0) {
+                val month = today.minusMonths(monthsAgo.toLong())
+                val date = month.withDayOfMonth(minOf(day, month.lengthOfMonth()))
+                // В этом месяце день взноса мог ещё не наступить — тогда взнос сегодняшний.
+                result += GoalContribution("gc-$goalId-$monthsAgo", goalId, Money.of(amount), if (date.isAfter(today)) today else date)
+            }
+        }
+
+        monthly("g-emergency", months = 8, amount = 500.0, day = 2)
+        monthly("g-japan", months = 5, amount = 320.0, day = 5)
+        monthly("g-laptop", months = 4, amount = 150.0, day = 10)
+        result += GoalContribution("gc-g-concert-2", "g-concert", Money.of(100.0), today.minusMonths(2))
+        result += GoalContribution("gc-g-concert-1", "g-concert", Money.of(80.0), today.minusMonths(1))
+        return result.sortedWith(ContributionsNewestFirst)
     }
 
     private val coffee = listOf("Kava Bar", "Bean There")

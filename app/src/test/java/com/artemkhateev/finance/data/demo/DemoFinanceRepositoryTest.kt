@@ -3,11 +3,15 @@ package com.artemkhateev.finance.data.demo
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryByName
 import com.artemkhateev.finance.data.model.CategoryTone
+import com.artemkhateev.finance.data.model.ContributionsNewestFirst
+import com.artemkhateev.finance.data.model.GoalContribution
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.data.model.sumOfMoney
 import com.artemkhateev.finance.data.model.value
+import com.artemkhateev.finance.feature.goals.GoalStatus
+import com.artemkhateev.finance.feature.goals.buildGoals
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -101,5 +105,40 @@ class DemoFinanceRepositoryTest {
     fun `demo portfolio history ends at today's value`() = runBlocking {
         val value = repository.holdings.first().sumOfMoney { it.value }
         assertEquals(PortfolioSnapshot(today, value), repository.portfolioHistory.first().last())
+    }
+
+    @Test
+    fun `demo goals show every status`() = runBlocking {
+        val state = buildGoals(today, repository.goals.first(), repository.goalContributions.first())
+        val statuses = (state.active + state.completed).associate { it.goal.id to it.status }
+
+        assertEquals(
+            mapOf(
+                "g-laptop" to GoalStatus.Behind,
+                "g-japan" to GoalStatus.OnTrack,
+                "g-emergency" to GoalStatus.Open,
+                "g-concert" to GoalStatus.Done,
+            ),
+            statuses,
+        )
+    }
+
+    @Test
+    fun `deleting a goal deletes its contributions`() = runBlocking {
+        assertTrue(repository.goalContributions.first().any { it.goalId == "g-laptop" })
+        repository.deleteGoal("g-laptop")
+
+        assertTrue(repository.goals.first().none { it.id == "g-laptop" })
+        assertTrue(repository.goalContributions.first().none { it.goalId == "g-laptop" })
+    }
+
+    @Test
+    fun `new contribution gets an id and history stays newest first`() = runBlocking {
+        repository.saveContribution(GoalContribution("", "g-japan", Money(5_000), today))
+        val history = repository.goalContributions.first()
+
+        assertEquals(Money(5_000), history.first().amount)
+        assertTrue(history.first().id.isNotBlank())
+        assertEquals(history.sortedWith(ContributionsNewestFirst), history)
     }
 }

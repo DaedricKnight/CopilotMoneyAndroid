@@ -10,6 +10,9 @@ import com.artemkhateev.finance.data.model.AccountByName
 import com.artemkhateev.finance.data.model.AccountType
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryByName
+import com.artemkhateev.finance.data.model.ContributionsNewestFirst
+import com.artemkhateev.finance.data.model.Goal
+import com.artemkhateev.finance.data.model.GoalContribution
 import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.NewestFirst
@@ -18,9 +21,12 @@ import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.data.model.newAccountId
 import com.artemkhateev.finance.data.model.newCategoryId
+import com.artemkhateev.finance.data.model.newContributionId
+import com.artemkhateev.finance.data.model.newGoalId
 import com.artemkhateev.finance.data.model.newHoldingId
 import com.artemkhateev.finance.data.model.newTransactionId
 import com.artemkhateev.finance.data.transactionsWindowStart
+import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -40,10 +46,13 @@ import java.time.LocalDate
 
 private const val TAG = "CloudFinance"
 
+/** Предел записей в одной пачке Firestore. */
+private const val BATCH_LIMIT = 500
+
 /**
  * Данные текущего пользователя в Firestore: users/{uid}/categories|accounts|transactions|recurrings|
- * holdings|portfolioHistory. Потоки следуют за входом и выходом, поэтому экранам не нужно
- * пересоздаваться при смене аккаунта.
+ * holdings|portfolioHistory|goals|goalContributions. Потоки следуют за входом и выходом, поэтому экранам
+ * не нужно пересоздаваться при смене аккаунта.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CloudFinanceRepository(
@@ -90,6 +99,12 @@ class CloudFinanceRepository(
         },
         ::snapshotFrom,
     ).map { list -> list.sortedBy { it.date.toEpochDay() } }
+
+    override val goals: Flow<List<Goal>> = perUser({ it.collection(GOALS) }, ::goalFrom)
+
+    // Взносы не ограничены окном транзакций: прогресс цели складывается из всех.
+    override val goalContributions: Flow<List<GoalContribution>> =
+        perUser({ it.collection(GOAL_CONTRIBUTIONS) }, ::contributionFrom).map { list -> list.sortedWith(ContributionsNewestFirst) }
 
     override suspend fun markReviewed(transactionIds: Collection<String>) {
         val user = currentUserDoc() ?: return
@@ -144,15 +159,7 @@ class CloudFinanceRepository(
         val user = currentUserDoc() ?: return
         user.collection(ACCOUNTS).document(accountId).delete()
             .addOnFailureListener { Log.w(TAG, "deleteAccount failed", it) }
-        // Без сети get() отвечает из локального кэша, так что позиции удаляются и офлайн.
-        user.collection(HOLDINGS).whereEqualTo("accountId", accountId).get()
-            .addOnSuccessListener { snapshot ->
-                if (snapshot.isEmpty) return@addOnSuccessListener
-                val batch = db.batch()
-                snapshot.documents.forEach { batch.delete(it.reference) }
-                batch.commit().addOnFailureListener { Log.w(TAG, "Holdings of $accountId not deleted", it) }
-            }
-            .addOnFailureListener { Log.w(TAG, "Holdings of $accountId not deleted", it) }
+        deleteWhere(user.collection(HOLDINGS), "accountId", accountId)
     }
 
     override suspend fun saveHolding(holding: Holding) {
@@ -175,6 +182,33 @@ class CloudFinanceRepository(
             .addOnFailureListener { Log.w(TAG, "recordPortfolioValue failed", it) }
     }
 
+    override suspend fun saveGoal(goal: Goal) {
+        val user = currentUserDoc() ?: return
+        val saved = if (goal.id.isBlank()) goal.copy(id = newGoalId()) else goal
+        user.collection(GOALS).document(saved.id).set(saved.toMap())
+            .addOnFailureListener { Log.w(TAG, "saveGoal failed", it) }
+    }
+
+    override suspend fun deleteGoal(goalId: String) {
+        val user = currentUserDoc() ?: return
+        user.collection(GOALS).document(goalId).delete()
+            .addOnFailureListener { Log.w(TAG, "deleteGoal failed", it) }
+        deleteWhere(user.collection(GOAL_CONTRIBUTIONS), "goalId", goalId)
+    }
+
+    override suspend fun saveContribution(contribution: GoalContribution) {
+        val user = currentUserDoc() ?: return
+        val saved = if (contribution.id.isBlank()) contribution.copy(id = newContributionId()) else contribution
+        user.collection(GOAL_CONTRIBUTIONS).document(saved.id).set(saved.toMap())
+            .addOnFailureListener { Log.w(TAG, "saveContribution failed", it) }
+    }
+
+    override suspend fun deleteContribution(contributionId: String) {
+        val user = currentUserDoc() ?: return
+        user.collection(GOAL_CONTRIBUTIONS).document(contributionId).delete()
+            .addOnFailureListener { Log.w(TAG, "deleteContribution failed", it) }
+    }
+
     /** Заливает демо-данные. Идентификаторы постоянные: повторный вызов перезаписывает те же документы. */
     suspend fun importDemoData() {
         val user = currentUserDoc() ?: return
@@ -188,6 +222,8 @@ class CloudFinanceRepository(
         DemoData.portfolioHistory(day).forEach {
             batch.set(user.collection(PORTFOLIO_HISTORY).document(it.date.toString()), it.toMap())
         }
+        DemoData.goals(day).forEach { batch.set(user.collection(GOALS).document(it.id), it.toMap()) }
+        DemoData.goalContributions(day).forEach { batch.set(user.collection(GOAL_CONTRIBUTIONS).document(it.id), it.toMap()) }
         batch.commit().await()
     }
 
@@ -200,6 +236,22 @@ class CloudFinanceRepository(
             user.collection(ACCOUNTS).document(accountId).update("balance", FieldValue.increment(delta))
                 .addOnFailureListener { Log.w(TAG, "Balance of $accountId not adjusted", it) }
         }
+    }
+
+    /**
+     * Удаляет документы, у которых [field] равно [value]: позиции удалённого счёта, взносы удалённой цели.
+     * Без сети get() отвечает из локального кэша, так что удаление работает и офлайн.
+     */
+    private fun deleteWhere(collection: CollectionReference, field: String, value: String) {
+        collection.whereEqualTo(field, value).get()
+            .addOnSuccessListener { snapshot ->
+                snapshot.documents.chunked(BATCH_LIMIT).forEach { chunk ->
+                    val batch = db.batch()
+                    chunk.forEach { batch.delete(it.reference) }
+                    batch.commit().addOnFailureListener { Log.w(TAG, "${collection.id} of $value not deleted", it) }
+                }
+            }
+            .addOnFailureListener { Log.w(TAG, "${collection.id} of $value not deleted", it) }
     }
 
     /** Новому пользователю — стартовые категории с бюджетами и счёт наличных. */
@@ -231,6 +283,8 @@ class CloudFinanceRepository(
         const val RECURRINGS = "recurrings"
         const val HOLDINGS = "holdings"
         const val PORTFOLIO_HISTORY = "portfolioHistory"
+        const val GOALS = "goals"
+        const val GOAL_CONTRIBUTIONS = "goalContributions"
         val CASH = Account("cash", "Cash", "", AccountType.Checking, Money.Zero)
     }
 }

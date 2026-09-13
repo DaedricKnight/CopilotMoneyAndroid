@@ -2,6 +2,8 @@ package com.artemkhateev.finance.data
 
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
+import com.artemkhateev.finance.data.model.Goal
+import com.artemkhateev.finance.data.model.GoalContribution
 import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Recurring
@@ -28,6 +30,11 @@ interface FinanceRepository {
 
     /** Снимки стоимости портфеля за последний год, от старых к новым. */
     val portfolioHistory: Flow<List<PortfolioSnapshot>>
+
+    val goals: Flow<List<Goal>>
+
+    /** Взносы во все цели за всё время, новые сверху. */
+    val goalContributions: Flow<List<GoalContribution>>
 
     suspend fun markReviewed(transactionIds: Collection<String>)
     suspend fun setCategory(transactionId: String, categoryId: String?)
@@ -62,6 +69,16 @@ interface FinanceRepository {
 
     /** Записывает стоимость портфеля за день; второй снимок за тот же день заменяет первый. */
     suspend fun recordPortfolioValue(snapshot: PortfolioSnapshot)
+
+    /** Пустой id — новая цель, id выдаст репозиторий; иначе цель перезаписывается. */
+    suspend fun saveGoal(goal: Goal)
+
+    /** Удаляет цель вместе с её взносами. */
+    suspend fun deleteGoal(goalId: String)
+
+    /** Пустой id — новый взнос, id выдаст репозиторий; иначе взнос перезаписывается. */
+    suspend fun saveContribution(contribution: GoalContribution)
+    suspend fun deleteContribution(contributionId: String)
 }
 
 /** Экраны показывают прошлый и текущий месяц: более ранние транзакции не загружаются и не вводятся. */

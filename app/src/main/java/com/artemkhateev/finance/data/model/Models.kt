@@ -170,3 +170,34 @@ fun portfolioValueByDay(
     }
     return values
 }
+
+/** Цель накопления. Деньги на неё не переводятся: взносы только отмечают, сколько отложено. */
+data class Goal(
+    val id: String,
+    val name: String,
+    val emoji: String,
+    val tone: CategoryTone,
+    val target: Money,
+    /** К какой дате накопить; null — без срока. */
+    val targetDate: LocalDate?,
+    /** С этого дня идёт план: сколько должно быть отложено к сегодняшнему дню при равномерных взносах. */
+    val startDate: LocalDate,
+)
+
+fun newGoalId(nowMillis: Long = System.currentTimeMillis()): String =
+    "g-$nowMillis-${UUID.randomUUID().toString().take(8)}"
+
+/** Взнос в цель; снятие — отрицательная сумма. Отложено на цель — сумма её взносов. */
+data class GoalContribution(
+    val id: String,
+    val goalId: String,
+    val amount: Money,
+    val date: LocalDate,
+)
+
+/** История взносов: новые даты сверху, внутри дня — по убыванию id. */
+val ContributionsNewestFirst: Comparator<GoalContribution> =
+    compareByDescending<GoalContribution> { it.date.toEpochDay() }.thenByDescending { it.id }
+
+fun newContributionId(nowMillis: Long = System.currentTimeMillis()): String =
+    "gc-$nowMillis-${UUID.randomUUID().toString().take(8)}"

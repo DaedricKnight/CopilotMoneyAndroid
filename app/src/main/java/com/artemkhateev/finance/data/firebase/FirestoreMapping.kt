@@ -6,6 +6,8 @@ import com.artemkhateev.finance.data.model.AssetClass
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.CategoryTone
+import com.artemkhateev.finance.data.model.Goal
+import com.artemkhateev.finance.data.model.GoalContribution
 import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
@@ -135,6 +137,42 @@ internal fun snapshotFrom(id: String, data: Map<String, Any?>): PortfolioSnapsho
     PortfolioSnapshot(
         date = LocalDate.parse(data["date"] as? String ?: id),
         value = Money((data["value"] as Number).toLong()),
+    )
+}.getOrNull()
+
+internal fun Goal.toMap(): Map<String, Any?> = mapOf(
+    "name" to name,
+    "emoji" to emoji,
+    "tone" to tone.name,
+    "target" to target.minor,
+    "targetDate" to targetDate?.toString(),
+    "startDate" to startDate.toString(),
+)
+
+internal fun goalFrom(id: String, data: Map<String, Any?>): Goal? = runCatching {
+    Goal(
+        id = id,
+        name = data["name"] as String,
+        emoji = data["emoji"] as? String ?: "🎯",
+        tone = enumOr(data["tone"], CategoryTone.Teal),
+        target = Money((data["target"] as Number).toLong()),
+        targetDate = (data["targetDate"] as? String)?.let { LocalDate.parse(it) },
+        startDate = LocalDate.parse(data["startDate"] as String),
+    )
+}.getOrNull()
+
+internal fun GoalContribution.toMap(): Map<String, Any?> = mapOf(
+    "goalId" to goalId,
+    "amount" to amount.minor,
+    "date" to date.toString(),
+)
+
+internal fun contributionFrom(id: String, data: Map<String, Any?>): GoalContribution? = runCatching {
+    GoalContribution(
+        id = id,
+        goalId = data["goalId"] as String,
+        amount = Money((data["amount"] as Number).toLong()),
+        date = LocalDate.parse(data["date"] as String),
     )
 }.getOrNull()
 

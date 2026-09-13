@@ -5,6 +5,8 @@ import com.artemkhateev.finance.data.model.AccountType
 import com.artemkhateev.finance.data.model.AssetClass
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryTone
+import com.artemkhateev.finance.data.model.Goal
+import com.artemkhateev.finance.data.model.GoalContribution
 import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
@@ -70,6 +72,21 @@ class FirestoreMappingTest {
             PortfolioSnapshot(LocalDate.of(2026, 9, 12), Money(100_000)),
             snapshotFrom("2026-09-12", mapOf("value" to 100_000L)),
         )
+    }
+
+    @Test
+    fun `goal keeps an optional target date`() {
+        val dated = Goal("g1", "Trip", "🗾", CategoryTone.Pink, Money(400_000), LocalDate.of(2027, 6, 1), LocalDate.of(2026, 4, 1))
+        val open = dated.copy(targetDate = null)
+
+        assertEquals(dated, goalFrom(dated.id, dated.toMap()))
+        assertEquals(open, goalFrom(open.id, open.toMap()))
+    }
+
+    @Test
+    fun `withdrawal keeps its sign`() {
+        val entry = GoalContribution("gc1", "g1", Money(-5_000), LocalDate.of(2026, 9, 12))
+        assertEquals(entry, contributionFrom(entry.id, entry.toMap()))
     }
 
     @Test
