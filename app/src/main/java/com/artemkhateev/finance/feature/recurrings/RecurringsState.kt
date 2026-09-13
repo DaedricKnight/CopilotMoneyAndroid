@@ -54,7 +54,8 @@ fun buildRecurrings(
             tone = recurring.categoryId?.let { toneById[it] },
             paid = payment != null,
             amount = payment?.amount?.abs() ?: recurring.amount,
-            dueLabel = ordinalDay(recurring.dayOfMonth),
+            // В коротком месяце платёж на 29–31-е приходится на его последний день.
+            dueLabel = ordinalDay(minOf(recurring.dayOfMonth, today.lengthOfMonth())),
         )
     }
 

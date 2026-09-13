@@ -63,6 +63,12 @@ interface FinanceRepository {
      */
     suspend fun deleteAccount(accountId: String)
 
+    /** Пустой id — новый регулярный платёж, id выдаст репозиторий; иначе платёж перезаписывается. */
+    suspend fun saveRecurring(recurring: Recurring)
+
+    /** Транзакции, которыми платёж уже вносили, остаются. */
+    suspend fun deleteRecurring(recurringId: String)
+
     /** Пустой id — новая позиция, id выдаст репозиторий; иначе позиция перезаписывается. */
     suspend fun saveHolding(holding: Holding)
     suspend fun deleteHolding(holdingId: String)

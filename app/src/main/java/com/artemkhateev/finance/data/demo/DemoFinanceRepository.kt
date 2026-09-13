@@ -25,6 +25,7 @@ import com.artemkhateev.finance.data.model.newCategoryId
 import com.artemkhateev.finance.data.model.newContributionId
 import com.artemkhateev.finance.data.model.newGoalId
 import com.artemkhateev.finance.data.model.newHoldingId
+import com.artemkhateev.finance.data.model.newRecurringId
 import com.artemkhateev.finance.data.model.newTransactionId
 import com.artemkhateev.finance.data.model.value
 import com.artemkhateev.finance.data.transactionsWindowStart
@@ -43,6 +44,7 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
     private val categoriesState = MutableStateFlow(DemoData.categories)
     private val accountsState = MutableStateFlow(DemoData.accounts)
     private val transactionsState = MutableStateFlow(DemoData.transactions(today))
+    private val recurringsState = MutableStateFlow(DemoData.recurrings)
     private val holdingsState = MutableStateFlow(DemoData.holdings(today))
     private val historyState = MutableStateFlow(DemoData.portfolioHistory(today))
     private val goalsState = MutableStateFlow(DemoData.goals(today))
@@ -51,7 +53,7 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
     override val categories: Flow<List<Category>> = categoriesState.map { it.sortedWith(CategoryByName) }
     override val accounts: Flow<List<Account>> = accountsState.map { it.sortedWith(AccountByName) }
     override val transactions: Flow<List<Transaction>> = transactionsState
-    override val recurrings: Flow<List<Recurring>> = MutableStateFlow(DemoData.recurrings)
+    override val recurrings: Flow<List<Recurring>> = recurringsState
     override val holdings: Flow<List<Holding>> = holdingsState
     override val portfolioHistory: Flow<List<PortfolioSnapshot>> = historyState
     override val goals: Flow<List<Goal>> = goalsState
@@ -98,6 +100,15 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
     override suspend fun deleteAccount(accountId: String) {
         accountsState.update { list -> list.filterNot { it.id == accountId } }
         holdingsState.update { list -> list.filterNot { it.accountId == accountId } }
+    }
+
+    override suspend fun saveRecurring(recurring: Recurring) {
+        val saved = if (recurring.id.isBlank()) recurring.copy(id = newRecurringId()) else recurring
+        recurringsState.update { list -> list.filterNot { it.id == saved.id } + saved }
+    }
+
+    override suspend fun deleteRecurring(recurringId: String) {
+        recurringsState.update { list -> list.filterNot { it.id == recurringId } }
     }
 
     override suspend fun saveHolding(holding: Holding) {

@@ -43,6 +43,12 @@ class RecurringsStateTest {
     }
 
     @Test
+    fun `payment past the end of a short month is due on its last day`() {
+        val internet = Recurring("r-net", "Internet", "📶", Money(2_999), dayOfMonth = 31)
+        assertEquals("30th", buildRecurrings(today, listOf(internet), emptyList(), emptyList()).thisMonth.single().dueLabel)
+    }
+
+    @Test
     fun `last month payment does not count`() {
         val august = spend("t1", "Rent", 120_000, LocalDate.of(2026, 8, 1))
         assertFalse(buildRecurrings(today, listOf(rent), emptyList(), listOf(august)).thisMonth.single().paid)

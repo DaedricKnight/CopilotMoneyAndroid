@@ -24,6 +24,7 @@ import com.artemkhateev.finance.data.model.newCategoryId
 import com.artemkhateev.finance.data.model.newContributionId
 import com.artemkhateev.finance.data.model.newGoalId
 import com.artemkhateev.finance.data.model.newHoldingId
+import com.artemkhateev.finance.data.model.newRecurringId
 import com.artemkhateev.finance.data.model.newTransactionId
 import com.artemkhateev.finance.data.transactionsWindowStart
 import com.google.firebase.firestore.CollectionReference
@@ -160,6 +161,19 @@ class CloudFinanceRepository(
         user.collection(ACCOUNTS).document(accountId).delete()
             .addOnFailureListener { Log.w(TAG, "deleteAccount failed", it) }
         deleteWhere(user.collection(HOLDINGS), "accountId", accountId)
+    }
+
+    override suspend fun saveRecurring(recurring: Recurring) {
+        val user = currentUserDoc() ?: return
+        val saved = if (recurring.id.isBlank()) recurring.copy(id = newRecurringId()) else recurring
+        user.collection(RECURRINGS).document(saved.id).set(saved.toMap())
+            .addOnFailureListener { Log.w(TAG, "saveRecurring failed", it) }
+    }
+
+    override suspend fun deleteRecurring(recurringId: String) {
+        val user = currentUserDoc() ?: return
+        user.collection(RECURRINGS).document(recurringId).delete()
+            .addOnFailureListener { Log.w(TAG, "deleteRecurring failed", it) }
     }
 
     override suspend fun saveHolding(holding: Holding) {

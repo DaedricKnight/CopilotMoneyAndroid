@@ -100,9 +100,13 @@ data class Recurring(
     val emoji: String,
     /** Ожидаемое списание, положительное. */
     val amount: Money,
+    /** День списания, 1–31: в коротком месяце платёж на 31-е приходится на последний день. */
     val dayOfMonth: Int,
     val categoryId: String? = null,
 )
+
+fun newRecurringId(nowMillis: Long = System.currentTimeMillis()): String =
+    "r-$nowMillis-${UUID.randomUUID().toString().take(8)}"
 
 /** Количество в позициях хранится в миллионных долях: у фондов и крипты бывают дробные доли. */
 const val QUANTITY_DECIMALS = 6
