@@ -73,11 +73,13 @@ import com.artemkhateev.finance.ui.format.monthYear
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.TONE_BACKGROUND_ALPHA
 import com.artemkhateev.finance.ui.theme.color
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -92,7 +94,7 @@ class GoalsViewModel(
     val state: StateFlow<GoalsUiState?> =
         combine(repository.goals, repository.goalContributions) { goals, contributions ->
             buildGoals(today(), goals, contributions)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val selectedId = MutableStateFlow<String?>(null)
 

@@ -148,6 +148,17 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
         contributionsState.update { list -> list.filterNot { it.id == contributionId } }
     }
 
+    override suspend fun deleteAllData() {
+        categoriesState.value = emptyList()
+        accountsState.value = emptyList()
+        transactionsState.value = emptyList()
+        recurringsState.value = emptyList()
+        holdingsState.value = emptyList()
+        historyState.value = emptyList()
+        goalsState.value = emptyList()
+        contributionsState.value = emptyList()
+    }
+
     private fun applyBalanceChanges(changes: Map<String, Long>) {
         if (changes.isEmpty()) return
         accountsState.update { list ->

@@ -62,12 +62,14 @@ import com.artemkhateev.finance.ui.format.quantityText
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.TONE_BACKGROUND_ALPHA
 import com.artemkhateev.finance.ui.theme.color
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -87,7 +89,7 @@ class InvestmentsViewModel(
     val state: StateFlow<InvestmentsUiState?> =
         combine(range, repository.accounts, repository.holdings, repository.portfolioHistory) { selected, accounts, holdings, history ->
             buildInvestments(today(), selected, accounts, holdings, history)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Счета, которые форма предлагает для позиции. */
     val investmentAccounts: StateFlow<List<Account>> =

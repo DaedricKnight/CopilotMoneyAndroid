@@ -48,11 +48,13 @@ import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.format.SignStyle
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.TONE_BACKGROUND_ALPHA
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -72,7 +74,7 @@ class AccountsViewModel(
             repository.portfolioHistory,
         ) { accounts, transactions, holdings, history ->
             buildAccounts(today(), accounts, transactions, holdings, history)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Все счета: по ним форма проверяет, не занято ли имя. */
     val allAccounts: StateFlow<List<Account>> =

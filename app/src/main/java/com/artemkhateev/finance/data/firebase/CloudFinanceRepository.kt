@@ -33,22 +33,31 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.time.LocalDate
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 
 private const val TAG = "CloudFinance"
 
 /** Предел записей в одной пачке Firestore. */
 private const val BATCH_LIMIT = 500
+
+/** Сколько слушатель коллекции живёт после ухода последнего экрана: вкладки переключают чаще. */
+private const val LISTENER_KEEP_ALIVE_MILLIS = 60_000L
 
 /**
  * Данные текущего пользователя в Firestore: users/{uid}/categories|accounts|transactions|recurrings|
@@ -59,9 +68,12 @@ private const val BATCH_LIMIT = 500
 class CloudFinanceRepository(
     private val auth: AuthRepository,
     private val db: FirebaseFirestore,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
     private val today: () -> LocalDate = { LocalDate.now() },
 ) : FinanceRepository {
+
+    /** Снимки Firestore разбираются здесь, а не на главном потоке: там разбор тормозил переключение вкладок. */
+    private val listenerExecutor: Executor = Executors.newSingleThreadExecutor()
 
     init {
         scope.launch {
@@ -75,10 +87,10 @@ class CloudFinanceRepository(
 
     // Firestore отдаёт документы по id, а экраны показывают категории и счета по имени.
     override val categories: Flow<List<Category>> =
-        perUser({ it.collection(CATEGORIES) }, ::categoryFrom).map { it.sortedWith(CategoryByName) }
+        perUser({ it.collection(CATEGORIES) }, ::categoryFrom).map { it.sortedWith(CategoryByName) }.shared()
 
     override val accounts: Flow<List<Account>> =
-        perUser({ it.collection(ACCOUNTS) }, ::accountFrom).map { it.sortedWith(AccountByName) }
+        perUser({ it.collection(ACCOUNTS) }, ::accountFrom).map { it.sortedWith(AccountByName) }.shared()
 
     // Более старые документы не читаем, чтобы не тратить квоту: экраны их всё равно не показывают.
     override val transactions: Flow<List<Transaction>> = perUser(
@@ -87,11 +99,11 @@ class CloudFinanceRepository(
             user.collection(TRANSACTIONS).whereGreaterThanOrEqualTo("date", since)
         },
         ::transactionFrom,
-    ).map { list -> list.sortedWith(NewestFirst) }
+    ).map { list -> list.sortedWith(NewestFirst) }.shared()
 
-    override val recurrings: Flow<List<Recurring>> = perUser({ it.collection(RECURRINGS) }, ::recurringFrom)
+    override val recurrings: Flow<List<Recurring>> = perUser({ it.collection(RECURRINGS) }, ::recurringFrom).shared()
 
-    override val holdings: Flow<List<Holding>> = perUser({ it.collection(HOLDINGS) }, ::holdingFrom)
+    override val holdings: Flow<List<Holding>> = perUser({ it.collection(HOLDINGS) }, ::holdingFrom).shared()
 
     override val portfolioHistory: Flow<List<PortfolioSnapshot>> = perUser(
         { user ->
@@ -99,13 +111,15 @@ class CloudFinanceRepository(
             user.collection(PORTFOLIO_HISTORY).whereGreaterThanOrEqualTo("date", since)
         },
         ::snapshotFrom,
-    ).map { list -> list.sortedBy { it.date.toEpochDay() } }
+    ).map { list -> list.sortedBy { it.date.toEpochDay() } }.shared()
 
-    override val goals: Flow<List<Goal>> = perUser({ it.collection(GOALS) }, ::goalFrom)
+    override val goals: Flow<List<Goal>> = perUser({ it.collection(GOALS) }, ::goalFrom).shared()
 
     // Взносы не ограничены окном транзакций: прогресс цели складывается из всех.
     override val goalContributions: Flow<List<GoalContribution>> =
-        perUser({ it.collection(GOAL_CONTRIBUTIONS) }, ::contributionFrom).map { list -> list.sortedWith(ContributionsNewestFirst) }
+        perUser({ it.collection(GOAL_CONTRIBUTIONS) }, ::contributionFrom)
+            .map { list -> list.sortedWith(ContributionsNewestFirst) }
+            .shared()
 
     override suspend fun markReviewed(transactionIds: Collection<String>) {
         val user = currentUserDoc() ?: return
@@ -223,6 +237,22 @@ class CloudFinanceRepository(
             .addOnFailureListener { Log.w(TAG, "deleteContribution failed", it) }
     }
 
+    /**
+     * Удаляет все документы пользователя и ждёт подтверждения сервера. Сам документ пользователя
+     * остаётся: иначе при следующем входе снова создались бы стартовые категории.
+     */
+    override suspend fun deleteAllData() {
+        val user = currentUserDoc() ?: return
+        for (name in USER_COLLECTIONS) {
+            val documents = user.collection(name).get().await().documents
+            for (chunk in documents.chunked(BATCH_LIMIT)) {
+                val batch = db.batch()
+                chunk.forEach { batch.delete(it.reference) }
+                batch.commit().await()
+            }
+        }
+    }
+
     /** Заливает демо-данные. Идентификаторы постоянные: повторный вызов перезаписывает те же документы. */
     suspend fun importDemoData() {
         val user = currentUserDoc() ?: return
@@ -287,8 +317,19 @@ class CloudFinanceRepository(
         query: (DocumentReference) -> Query,
         parse: (String, Map<String, Any?>) -> T?,
     ): Flow<List<T>> = auth.user.map { it?.uid }.distinctUntilChanged().flatMapLatest { uid ->
-        if (uid == null) flowOf(emptyList()) else query(userDoc(uid)).observe(parse)
+        if (uid == null) flowOf(emptyList()) else query(userDoc(uid)).observe(listenerExecutor, parse)
     }
+
+    /**
+     * Один слушатель на коллекцию для всех экранов: вкладка открывается с уже загруженным списком, а не
+     * заводит свой слушатель. Когда слушатель останавливается, последний список забывается — после смены
+     * аккаунта не мелькнут данные прежнего.
+     */
+    private fun <T> Flow<T>.shared(): Flow<T> = flowOn(Dispatchers.Default).shareIn(
+        scope = scope,
+        started = SharingStarted.WhileSubscribed(stopTimeoutMillis = LISTENER_KEEP_ALIVE_MILLIS, replayExpirationMillis = 0),
+        replay = 1,
+    )
 
     private companion object {
         const val CATEGORIES = "categories"
@@ -299,12 +340,15 @@ class CloudFinanceRepository(
         const val PORTFOLIO_HISTORY = "portfolioHistory"
         const val GOALS = "goals"
         const val GOAL_CONTRIBUTIONS = "goalContributions"
+        val USER_COLLECTIONS = listOf(
+            CATEGORIES, ACCOUNTS, TRANSACTIONS, RECURRINGS, HOLDINGS, PORTFOLIO_HISTORY, GOALS, GOAL_CONTRIBUTIONS,
+        )
         val CASH = Account("cash", "Cash", "", AccountType.Checking, Money.Zero)
     }
 }
 
-private fun <T> Query.observe(parse: (String, Map<String, Any?>) -> T?): Flow<List<T>> = callbackFlow {
-    val registration = addSnapshotListener { snapshot, error ->
+private fun <T> Query.observe(executor: Executor, parse: (String, Map<String, Any?>) -> T?): Flow<List<T>> = callbackFlow {
+    val registration = addSnapshotListener(executor) { snapshot, error ->
         if (error != null) {
             // Например, PERMISSION_DENIED сразу после выхода: слушатель уже не работает, завершаем поток.
             Log.w(TAG, "Snapshot listener failed", error)

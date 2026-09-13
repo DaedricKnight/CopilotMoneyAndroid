@@ -35,9 +35,11 @@ import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.format.SignStyle
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 
@@ -50,7 +52,7 @@ class CashFlowViewModel(
     val state: StateFlow<CashFlowUiState?> =
         combine(repository.transactions, repository.categories) { transactions, categories ->
             buildCashFlow(today(), transactions, categories)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 }
 
 @Composable

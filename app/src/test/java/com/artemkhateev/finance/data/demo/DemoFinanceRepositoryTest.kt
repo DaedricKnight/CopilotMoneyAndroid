@@ -136,6 +136,20 @@ class DemoFinanceRepositoryTest {
     }
 
     @Test
+    fun `deleting all data empties every list`() = runBlocking {
+        repository.deleteAllData()
+
+        assertTrue(repository.transactions.first().isEmpty())
+        assertTrue(repository.categories.first().isEmpty())
+        assertTrue(repository.accounts.first().isEmpty())
+        assertTrue(repository.recurrings.first().isEmpty())
+        assertTrue(repository.holdings.first().isEmpty())
+        assertTrue(repository.portfolioHistory.first().isEmpty())
+        assertTrue(repository.goals.first().isEmpty())
+        assertTrue(repository.goalContributions.first().isEmpty())
+    }
+
+    @Test
     fun `deleting a goal deletes its contributions`() = runBlocking {
         assertTrue(repository.goalContributions.first().any { it.goalId == "g-laptop" })
         repository.deleteGoal("g-laptop")

@@ -78,7 +78,12 @@ private fun HomeScreen() {
             onSelect = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
         )
         Spacer(Modifier.height(8.dp))
-        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f),
+            // Все вкладки собраны заранее: во время свайпа ничего не строится.
+            beyondViewportPageCount = tabs.size,
+        ) { page ->
             when (tabs[page]) {
                 AppTab.CashFlow -> CashFlowScreen()
                 AppTab.Accounts -> AccountsScreen()

@@ -35,6 +35,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // Своего ключа пока нет: релиз для телефона подписан отладочным. Его SHA-1 уже есть в Firebase,
+            // поэтому вход через Google работает. Перед публикацией в стор — свой ключ.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

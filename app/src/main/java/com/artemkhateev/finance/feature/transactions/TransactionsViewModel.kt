@@ -7,11 +7,13 @@ import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.ui.format.dayLabel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -58,7 +60,7 @@ class TransactionsViewModel(
     val state: StateFlow<TransactionsUiState?> =
         combine(repository.transactions, repository.categories, repository.accounts) { transactions, categories, accounts ->
             TransactionsUiState(buildTransactionDays(today(), transactions, categories, accounts), categories, accounts)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val mutableDraft = MutableStateFlow<TransactionDraft?>(null)
 

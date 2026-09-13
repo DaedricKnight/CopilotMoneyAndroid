@@ -85,6 +85,9 @@ interface FinanceRepository {
     /** Пустой id — новый взнос, id выдаст репозиторий; иначе взнос перезаписывается. */
     suspend fun saveContribution(contribution: GoalContribution)
     suspend fun deleteContribution(contributionId: String)
+
+    /** Удаляет всё: транзакции, счета, категории, регулярные платежи, позиции с историей и цели. */
+    suspend fun deleteAllData()
 }
 
 /** Экраны показывают прошлый и текущий месяц: более ранние транзакции не загружаются и не вводятся. */

@@ -54,11 +54,13 @@ import com.artemkhateev.finance.ui.components.SectionHeader
 import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -74,7 +76,7 @@ class RecurringsViewModel(
     val state: StateFlow<RecurringsUiState?> =
         combine(repository.recurrings, repository.categories, repository.transactions) { recurrings, categories, transactions ->
             buildRecurrings(today(), recurrings, categories, transactions)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Категории расходов для формы платежа. */
     val expenseCategories: StateFlow<List<Category>> =

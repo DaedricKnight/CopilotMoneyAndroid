@@ -62,11 +62,13 @@ import com.artemkhateev.finance.ui.format.SignStyle
 import com.artemkhateev.finance.ui.format.dayLabel
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -82,7 +84,7 @@ class CategoriesViewModel(
     val state: StateFlow<CategoriesUiState?> =
         combine(repository.categories, repository.transactions) { categories, transactions ->
             buildCategories(today(), categories, transactions)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Все категории: по ним форма проверяет, не занято ли имя. */
     val allCategories: StateFlow<List<Category>> =
@@ -94,7 +96,7 @@ class CategoriesViewModel(
     val detail: StateFlow<CategoryDetailUi?> =
         combine(selectedId, repository.categories, repository.transactions) { id, categories, transactions ->
             id?.let { buildCategoryDetail(today(), it, categories, transactions) }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val mutableDraft = MutableStateFlow<CategoryDraft?>(null)
 
