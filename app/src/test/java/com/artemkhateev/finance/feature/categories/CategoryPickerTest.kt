@@ -1,4 +1,4 @@
-package com.artemkhateev.finance.feature.transactions
+package com.artemkhateev.finance.feature.categories
 
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class TransactionCategoryPickerTest {
+class CategoryPickerTest {
 
     private fun category(id: String, name: String, kind: CategoryKind = CategoryKind.Expense) =
         Category(id, name, "🙂", CategoryTone.Gray, kind)
@@ -37,5 +37,16 @@ class TransactionCategoryPickerTest {
     @Test
     fun `search narrows the catalog by name`() {
         assertEquals(listOf("Salary"), catalogChoices(emptyList(), CategoryKind.Income, query = " sal").map { it.name })
+    }
+
+    @Test
+    fun `picking a catalog category reuses one with the same name`() {
+        val coffee = CategoryCatalog.single { it.name == "Coffee" }
+        val mine = category("mine", "coffee")
+        val created = coffee.existingOrNew(emptyList())
+
+        assertEquals(mine, coffee.existingOrNew(listOf(mine)))
+        assertTrue(created.id.isNotBlank())
+        assertEquals("Coffee", created.name)
     }
 }

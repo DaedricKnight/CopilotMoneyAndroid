@@ -38,7 +38,10 @@ import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.transactionsWindowStart
+import com.artemkhateev.finance.feature.categories.AllCategoriesChip
+import com.artemkhateev.finance.feature.categories.CategoryPicker
 import com.artemkhateev.finance.feature.categories.SuggestedCategory
+import com.artemkhateev.finance.feature.categories.quickCategories
 import com.artemkhateev.finance.ui.components.BoundedDatePickerDialog
 import com.artemkhateev.finance.ui.components.CategoryChip
 import com.artemkhateev.finance.ui.components.CenteredTextField
@@ -78,6 +81,8 @@ fun TransactionEditorSheet(
     val editing = draft.id.isNotBlank()
     var pickingDate by remember { mutableStateOf(false) }
     var pickingCategory by remember { mutableStateOf(false) }
+    // Прокрутка формы переживает полный список категорий: после выбора форма остаётся на том же месте.
+    val formScroll = rememberScrollState()
     var confirmDelete by remember(draft.id) { mutableStateOf(false) }
     val wantedKind = if (draft.kind == EntryKind.Income) CategoryKind.Income else CategoryKind.Expense
 
@@ -126,7 +131,7 @@ fun TransactionEditorSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(formScroll)
                 .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -186,7 +191,7 @@ fun TransactionEditorSheet(
                             .clickable { onChange { it.copy(categoryId = if (selected) null else category.id) } },
                     )
                 }
-                AllCategoriesChip(onClick = { pickingCategory = true })
+                AllCategoriesChip(onClick = { pickingCategory = true }, modifier = Modifier.fillMaxRowHeight())
             }
 
             FieldLabel("Account")

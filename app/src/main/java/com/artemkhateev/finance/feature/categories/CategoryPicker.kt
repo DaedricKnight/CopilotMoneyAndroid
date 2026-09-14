@@ -1,4 +1,4 @@
-package com.artemkhateev.finance.feature.transactions
+package com.artemkhateev.finance.feature.categories
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,13 +29,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
-import com.artemkhateev.finance.feature.categories.CategoryCatalog
-import com.artemkhateev.finance.feature.categories.SuggestedCategory
+import com.artemkhateev.finance.data.model.newCategoryId
 import com.artemkhateev.finance.ui.components.CategoryChip
 import com.artemkhateev.finance.ui.components.CenteredTextField
 import com.artemkhateev.finance.ui.components.FieldLabel
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
+
+/*
+ * Выбор категории в формах транзакции и регулярного платежа: в форме сразу видны частые категории,
+ * а полный список — свои и каталог готовых — открывается в той же шторке.
+ */
+
+/** Категория, выбранная из каталога: уже заведённая с тем же именем или новая с готовым id — её нужно сохранить. */
+fun SuggestedCategory.existingOrNew(existing: List<Category>): Category =
+    existing.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: toCategory().copy(id = newCategoryId())
 
 /** Категории, видные в форме сразу: сначала частые, затем по имени; выбранная — всегда в списке. */
 internal fun quickCategories(
@@ -61,7 +69,7 @@ internal fun catalogChoices(categories: List<Category>, kind: CategoryKind, quer
             suggestion.name.contains(query.trim(), ignoreCase = true)
     }
 
-/** Полный список категорий в форме транзакции: свои и каталог, выбранная из каталога сразу заводится. */
+/** Полный список категорий: свои и каталог; выбранная из каталога сразу заводится. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun CategoryPicker(
@@ -158,21 +166,25 @@ internal fun CategoryPicker(
     }
 }
 
-/** Последний чип в форме: открывает полный список категорий. */
+/** Последний чип в форме: открывает полный список категорий. В ряду чипов его растягивают до их высоты. */
 @Composable
-internal fun AllCategoriesChip(onClick: () -> Unit) {
+internal fun AllCategoriesChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = FinanceTheme.colors
-    Text(
-        text = "ALL CATEGORIES ›",
-        style = FinanceTheme.typography.chip,
-        color = colors.accent,
-        maxLines = 1,
-        modifier = Modifier
+    Box(
+        modifier = modifier
             .clip(CircleShape)
             .border(1.dp, colors.border, CircleShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 5.dp),
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "ALL CATEGORIES ›",
+            style = FinanceTheme.typography.chip,
+            color = colors.accent,
+            maxLines = 1,
+        )
+    }
 }
 
 /** Категория из каталога: ещё не заведена — контур вместо подложки и плюс. */

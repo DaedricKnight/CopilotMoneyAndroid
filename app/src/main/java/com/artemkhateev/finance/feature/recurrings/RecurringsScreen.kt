@@ -45,6 +45,8 @@ import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.Recurring
+import com.artemkhateev.finance.feature.categories.SuggestedCategory
+import com.artemkhateev.finance.feature.categories.existingOrNew
 import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.FinanceCard
 import com.artemkhateev.finance.ui.components.MoneyText
@@ -83,6 +85,11 @@ class RecurringsViewModel(
         repository.categories.map { list -> list.filter { it.kind == CategoryKind.Expense } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Сколько транзакций у каждой категории: частые видны в форме первыми. */
+    val categoryUsage: StateFlow<Map<String, Int>> =
+        repository.transactions.map { list -> list.mapNotNull { it.categoryId }.groupingBy { it }.eachCount() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     private val mutableDraft = MutableStateFlow<RecurringDraft?>(null)
 
     /** Открытая форма платежа; null — закрыта. */
@@ -116,6 +123,14 @@ class RecurringsViewModel(
         mutableDraft.value = null
         viewModelScope.launch { repository.deleteRecurring(id) }
     }
+
+    /** Категория из каталога, выбранная прямо в форме: заводится сразу, а её id форма получает до ответа репозитория. */
+    fun createCategory(suggestion: SuggestedCategory): String {
+        val existing = expenseCategories.value
+        val category = suggestion.existingOrNew(existing)
+        if (category !in existing) viewModelScope.launch { repository.saveCategory(category) }
+        return category.id
+    }
 }
 
 @Composable
@@ -125,6 +140,7 @@ fun RecurringsScreen(
     val loaded by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val categories by viewModel.expenseCategories.collectAsStateWithLifecycle()
+    val usage by viewModel.categoryUsage.collectAsStateWithLifecycle()
     val state = loaded ?: return
     val colors = FinanceTheme.colors
 
@@ -182,6 +198,8 @@ fun RecurringsScreen(
             onSave = viewModel::saveDraft,
             onDelete = viewModel::deleteDraft,
             onDismiss = viewModel::dismissDraft,
+            categoryUsage = usage,
+            onCreateCategory = viewModel::createCategory,
         )
     }
 }

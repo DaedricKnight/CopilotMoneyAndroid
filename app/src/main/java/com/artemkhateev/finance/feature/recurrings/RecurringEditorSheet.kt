@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,7 +40,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.artemkhateev.finance.data.model.Category
+import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.RecurringFrequency
+import com.artemkhateev.finance.feature.categories.AllCategoriesChip
+import com.artemkhateev.finance.feature.categories.CategoryPicker
+import com.artemkhateev.finance.feature.categories.SuggestedCategory
+import com.artemkhateev.finance.feature.categories.quickCategories
 import com.artemkhateev.finance.ui.components.CategoryChip
 import com.artemkhateev.finance.ui.components.CenteredTextField
 import com.artemkhateev.finance.ui.components.FieldLabel
@@ -59,7 +66,10 @@ private val EmojiSuggestions = listOf(
     "🏋️", "🚙", "☂️", "🏥", "🎓", "👶", "🐶", "🥕", "🧹", "💳", "🧾", "🔁",
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Сколько категорий видно в форме сразу; остальные — в полном списке. */
+private const val QUICK_CATEGORY_LIMIT = 12
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RecurringEditorSheet(
     draft: RecurringDraft,
@@ -69,11 +79,18 @@ fun RecurringEditorSheet(
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
+    /** Сколько транзакций у каждой категории: частые видны в форме первыми. */
+    categoryUsage: Map<String, Int> = emptyMap(),
+    /** Заводит категорию из каталога и возвращает её id. */
+    onCreateCategory: (SuggestedCategory) -> String = { "" },
 ) {
     val colors = FinanceTheme.colors
     val typography = FinanceTheme.typography
     val editing = draft.id.isNotBlank()
     val problem = draft.problem()
+    var pickingCategory by remember { mutableStateOf(false) }
+    // Прокрутка формы переживает полный список категорий: после выбора форма остаётся на том же месте.
+    val formScroll = rememberScrollState()
     var confirmDelete by remember(draft.id) { mutableStateOf(false) }
 
     ModalBottomSheet(
@@ -81,11 +98,31 @@ fun RecurringEditorSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = colors.surface,
     ) {
+        // Полный список категорий открывается в той же шторке: две шторки сразу не показываем.
+        if (pickingCategory) {
+            CategoryPicker(
+                kind = CategoryKind.Expense,
+                categories = categories,
+                selectedId = draft.categoryId,
+                onPick = { id ->
+                    onChange { it.copy(categoryId = id) }
+                    pickingCategory = false
+                },
+                onCreate = { suggestion ->
+                    val id = onCreateCategory(suggestion)
+                    onChange { it.copy(categoryId = id) }
+                    pickingCategory = false
+                },
+                onBack = { pickingCategory = false },
+            )
+            return@ModalBottomSheet
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(formScroll)
                 .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -174,8 +211,12 @@ fun RecurringEditorSheet(
             FieldLabel("Category")
             // Категория могла быть удалена — тогда платёж показываем как без категории.
             val selectedKnown = categories.any { it.id == draft.categoryId }
-            LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(categories, key = { it.id }) { category ->
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                quickCategories(categories, CategoryKind.Expense, categoryUsage, draft.categoryId, QUICK_CATEGORY_LIMIT).forEach { category ->
                     val selected = category.id == draft.categoryId
                     CategoryChip(
                         category = category,
@@ -186,6 +227,7 @@ fun RecurringEditorSheet(
                             .clickable { onChange { it.copy(categoryId = if (selected) null else category.id) } },
                     )
                 }
+                AllCategoriesChip(onClick = { pickingCategory = true }, modifier = Modifier.fillMaxRowHeight())
             }
             Text(
                 text = "Marked paid when this month has an expense with the same name, or the same amount in this category",

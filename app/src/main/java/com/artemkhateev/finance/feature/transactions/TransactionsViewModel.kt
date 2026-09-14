@@ -6,8 +6,8 @@ import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.Transaction
-import com.artemkhateev.finance.data.model.newCategoryId
 import com.artemkhateev.finance.feature.categories.SuggestedCategory
+import com.artemkhateev.finance.feature.categories.existingOrNew
 import com.artemkhateev.finance.ui.format.dayLabel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -111,14 +111,11 @@ class TransactionsViewModel(
         viewModelScope.launch { repository.deleteTransaction(transaction) }
     }
 
-    /**
-     * Категория из каталога, выбранная прямо в форме: заводится сразу, а id выдаётся здесь, чтобы форма
-     * могла выбрать её до ответа репозитория. Если такое имя уже есть, берётся существующая.
-     */
+    /** Категория из каталога, выбранная прямо в форме: заводится сразу, а её id форма получает до ответа репозитория. */
     fun createCategory(suggestion: SuggestedCategory): String {
-        state.value?.categories?.firstOrNull { it.name.equals(suggestion.name, ignoreCase = true) }?.let { return it.id }
-        val category = suggestion.toCategory().copy(id = newCategoryId())
-        viewModelScope.launch { repository.saveCategory(category) }
+        val existing = state.value?.categories.orEmpty()
+        val category = suggestion.existingOrNew(existing)
+        if (category !in existing) viewModelScope.launch { repository.saveCategory(category) }
         return category.id
     }
 }
