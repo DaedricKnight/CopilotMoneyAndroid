@@ -40,6 +40,9 @@ object AppGraph {
 
     val repository: FinanceRepository by lazy { cloud ?: DemoFinanceRepository() }
 
+    /** Настройки интерфейса на устройстве: и в облачном, и в демо-режиме. */
+    val settings: DeviceSettings by lazy { DeviceSettings(context.getSharedPreferences("settings", Context.MODE_PRIVATE)) }
+
     @SuppressLint("DiscouragedApi")
     private fun webClientId(): String? {
         // Ресурс генерирует плагин google-services, если в проекте Firebase включён вход через Google.

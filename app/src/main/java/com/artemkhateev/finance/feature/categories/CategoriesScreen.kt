@@ -1,5 +1,6 @@
 package com.artemkhateev.finance.feature.categories
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,8 +22,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.artemkhateev.finance.data.AppGraph
+import com.artemkhateev.finance.data.DeviceSettings
 import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
@@ -75,15 +84,19 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import kotlin.math.roundToInt
 
+/** Ключ выбранной сортировки в настройках устройства. */
+private const val SORT_KEY = "categories.sort"
+
 class CategoriesViewModel(
     private val repository: FinanceRepository,
+    private val settings: DeviceSettings,
     today: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
 
     /** null — данные ещё не пришли. */
     val state: StateFlow<CategoriesUiState?> =
-        combine(repository.categories, repository.transactions) { categories, transactions ->
-            buildCategories(today(), categories, transactions)
+        combine(repository.categories, repository.transactions, settings.string(SORT_KEY)) { categories, transactions, sort ->
+            buildCategories(today(), categories, transactions, CategorySort.fromKey(sort))
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Все категории: по ним форма проверяет, не занято ли имя. */
@@ -142,6 +155,11 @@ class CategoriesViewModel(
         viewModelScope.launch { repository.deleteCategory(id) }
     }
 
+    /** Порядок категорий запоминается на устройстве и переживает перезапуск. */
+    fun sortBy(sort: CategorySort) {
+        settings.putString(SORT_KEY, sort.name)
+    }
+
     private val mutableSuggestionsOpen = MutableStateFlow(false)
 
     /** Открыт ли каталог готовых категорий. */
@@ -169,7 +187,7 @@ class CategoriesViewModel(
 
 @Composable
 fun CategoriesScreen(
-    viewModel: CategoriesViewModel = viewModel { CategoriesViewModel(AppGraph.repository) },
+    viewModel: CategoriesViewModel = viewModel { CategoriesViewModel(AppGraph.repository, AppGraph.settings) },
 ) {
     val loaded by viewModel.state.collectAsStateWithLifecycle()
     val detail by viewModel.detail.collectAsStateWithLifecycle()
@@ -194,6 +212,11 @@ fun CategoriesScreen(
                 contentPadding = screenContentPadding(extraBottom = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                item(key = "sort") {
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                        SortMenu(state.sort, onSort = viewModel::sortBy)
+                    }
+                }
                 if (state.budgets.isNotEmpty()) {
                     item(key = "budgets") {
                         BudgetsCard(state, showPercent, onShowPercent = { showPercent = it }, onOpen = viewModel::open)
@@ -237,6 +260,52 @@ fun CategoriesScreen(
             onDelete = viewModel::deleteDraft,
             onDismiss = viewModel::dismissDraft,
         )
+    }
+}
+
+/** Порядок категорий: текущий вариант, а по нажатию — меню со всеми. */
+@Composable
+private fun SortMenu(sort: CategorySort, onSort: (CategorySort) -> Unit) {
+    val colors = FinanceTheme.colors
+    val typography = FinanceTheme.typography
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .clip(CircleShape)
+                .clickable { expanded = true }
+                .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(Icons.Rounded.SwapVert, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
+            Text("Sort by", style = typography.bodySecondary, color = colors.textMuted)
+            Text(sort.title, style = typography.bodySecondary, color = colors.accent)
+            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            shape = RoundedCornerShape(16.dp),
+            containerColor = colors.surface,
+            border = BorderStroke(1.dp, colors.border),
+        ) {
+            CategorySort.entries.forEach { option ->
+                val selected = option == sort
+                DropdownMenuItem(
+                    text = {
+                        Text(option.title, style = typography.body, color = if (selected) colors.accent else colors.textPrimary)
+                    },
+                    trailingIcon = {
+                        if (selected) Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = colors.accent)
+                    },
+                    onClick = {
+                        expanded = false
+                        onSort(option)
+                    },
+                )
+            }
+        }
     }
 }
 

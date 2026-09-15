@@ -8,6 +8,29 @@ import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.data.model.sumOfMoney
 import java.time.LocalDate
 
+/**
+ * Порядок категорий на экране: и полос бюджетов, и остальных категорий. При равенстве — по имени;
+ * во всех сортировках, кроме [Name], доходы идут после расходов.
+ */
+enum class CategorySort(val title: String) {
+    /** По имени, без учёта регистра. */
+    Name("Name"),
+
+    /** Больше потрачено за месяц — выше; у доходов — получено. */
+    Spent("Spent"),
+
+    /** Бюджеты — по доле потраченного, перерасход сверху; категории без бюджета — как [Spent]. */
+    BudgetUsed("Budget used"),
+
+    /** Больше транзакций за месяц — выше. */
+    Transactions("Transactions");
+
+    companion object {
+        /** Сохранённое значение; незнакомое или пустое — по имени. */
+        fun fromKey(key: String?): CategorySort = entries.firstOrNull { it.name == key } ?: Name
+    }
+}
+
 data class CategoryBudgetUi(
     val category: Category,
     val spent: Money,
@@ -25,6 +48,7 @@ data class CategoriesUiState(
     val budgets: List<CategoryBudgetUi>,
     /** Все остальные категории — расходы без бюджета и доходы, — чтобы до любой можно было дотянуться. */
     val others: List<CategoryAmountUi>,
+    val sort: CategorySort = CategorySort.Name,
 )
 
 data class CategoryDetailUi(
@@ -36,7 +60,14 @@ data class CategoryDetailUi(
     val transactions: List<Transaction>,
 )
 
-fun buildCategories(today: LocalDate, categories: List<Category>, transactions: List<Transaction>): CategoriesUiState {
+private val ByName = compareBy<Category, String>(String.CASE_INSENSITIVE_ORDER) { it.name }
+
+fun buildCategories(
+    today: LocalDate,
+    categories: List<Category>,
+    transactions: List<Transaction>,
+    sort: CategorySort = CategorySort.Name,
+): CategoriesUiState {
     val thisMonth = monthTransactions(today, transactions)
     val spentByCategory = thisMonth.filter { it.amount.minor < 0 }
         .groupBy { it.categoryId }
@@ -44,6 +75,8 @@ fun buildCategories(today: LocalDate, categories: List<Category>, transactions: 
     val receivedByCategory = thisMonth.filter { it.amount.minor > 0 }
         .groupBy { it.categoryId }
         .mapValues { (_, list) -> list.sumOf { it.amount.minor } }
+    val countByCategory = thisMonth.groupingBy { it.categoryId }.eachCount()
+    fun count(category: Category) = countByCategory[category.id] ?: 0
 
     val budgets = categories
         .filter { it.kind == CategoryKind.Expense && (it.monthlyBudget?.minor ?: 0L) > 0L }
@@ -52,18 +85,38 @@ fun buildCategories(today: LocalDate, categories: List<Category>, transactions: 
             val spent = Money(spentByCategory[category.id] ?: 0L)
             CategoryBudgetUi(category, spent, budget, spent.minor.toFloat() / budget.minor)
         }
+        .sortedWith(
+            when (sort) {
+                CategorySort.Name -> compareBy<CategoryBudgetUi, Category>(ByName) { it.category }
+                CategorySort.Spent -> compareByDescending<CategoryBudgetUi> { it.spent.minor }.thenBy(ByName) { it.category }
+                CategorySort.BudgetUsed -> compareByDescending<CategoryBudgetUi> { it.ratio }.thenBy(ByName) { it.category }
+                CategorySort.Transactions ->
+                    compareByDescending<CategoryBudgetUi> { count(it.category) }.thenBy(ByName) { it.category }
+            },
+        )
     val budgetedIds = budgets.map { it.category.id }.toSet()
+    val incomeLast = compareBy<CategoryAmountUi> { it.category.kind == CategoryKind.Income }
     val others = categories
         .filterNot { it.id in budgetedIds }
         .map { category ->
             val byCategory = if (category.kind == CategoryKind.Income) receivedByCategory else spentByCategory
             CategoryAmountUi(category, Money(byCategory[category.id] ?: 0L))
         }
+        .sortedWith(
+            when (sort) {
+                CategorySort.Name -> compareBy<CategoryAmountUi, Category>(ByName) { it.category }
+                // Без бюджета доли нет — такие категории идут по сумме.
+                CategorySort.Spent, CategorySort.BudgetUsed ->
+                    incomeLast.thenByDescending { it.amount.minor }.thenBy(ByName) { it.category }
+                CategorySort.Transactions -> incomeLast.thenByDescending { count(it.category) }.thenBy(ByName) { it.category }
+            },
+        )
 
     return CategoriesUiState(
         totalLeft = budgets.sumOfMoney { it.budget } - budgets.sumOfMoney { it.spent },
         budgets = budgets,
         others = others,
+        sort = sort,
     )
 }
 
