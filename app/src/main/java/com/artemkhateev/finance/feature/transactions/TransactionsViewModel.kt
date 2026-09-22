@@ -2,36 +2,98 @@ package com.artemkhateev.finance.feature.transactions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.artemkhateev.finance.data.DeviceSettings
 import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
+import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.Transaction
 import com.artemkhateev.finance.feature.categories.SuggestedCategory
 import com.artemkhateev.finance.feature.categories.existingOrNew
 import com.artemkhateev.finance.ui.format.dayLabel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+
+/** Ключ выбранного периода в настройках устройства. */
+private const val PERIOD_KEY = "transactions.period"
+
+/** За какой период показаны траты. Период всегда заканчивается сегодня. */
+enum class TransactionPeriod(val label: String, val summary: String) {
+    Day("1D", "today"),
+    Week("1W", "in the last 7 days"),
+    Month("1M", "in the last month"),
+    Quarter("3M", "in the last 3 months"),
+    HalfYear("6M", "in the last 6 months"),
+    Year("1Y", "in the last year");
+
+    /** Первый день периода. */
+    fun start(today: LocalDate): LocalDate = when (this) {
+        Day -> today
+        Week -> today.minusDays(6)
+        Month -> today.minusMonths(1).plusDays(1)
+        Quarter -> today.minusMonths(3).plusDays(1)
+        HalfYear -> today.minusMonths(6).plusDays(1)
+        Year -> today.minusYears(1).plusDays(1)
+    }
+
+    /** До месяца хватает [FinanceRepository.transactions]; дальше нужен [FinanceRepository.transactionsYear]. */
+    val needsYear: Boolean get() = ordinal > Month.ordinal
+
+    companion object {
+        /** Сохранённое значение; незнакомое или пустое — месяц. */
+        fun fromKey(key: String?): TransactionPeriod = entries.firstOrNull { it.name == key } ?: Month
+    }
+}
 
 data class TransactionRowUi(val transaction: Transaction, val category: Category?, val accountName: String)
 
 data class TransactionDayUi(val date: LocalDate, val label: String, val rows: List<TransactionRowUi>)
 
 data class TransactionsUiState(
+    val period: TransactionPeriod,
+    /** Потрачено за период: доходы в сумму не входят. */
+    val spent: Money,
+    /** Сколько транзакций попало в период. */
+    val count: Int,
     val days: List<TransactionDayUi>,
     val categories: List<Category>,
     val accounts: List<Account>,
-    /** Сколько загруженных транзакций у каждой категории. */
+    /** Сколько транзакций периода у каждой категории. */
     val categoryUsage: Map<String, Int> = emptyMap(),
 )
+
+fun buildTransactions(
+    today: LocalDate,
+    period: TransactionPeriod,
+    transactions: List<Transaction>,
+    categories: List<Category>,
+    accounts: List<Account>,
+): TransactionsUiState {
+    val start = period.start(today)
+    val inPeriod = transactions.filter { !it.date.isBefore(start) && !it.date.isAfter(today) }
+    return TransactionsUiState(
+        period = period,
+        spent = Money(-inPeriod.filter { it.amount.minor < 0 }.sumOf { it.amount.minor }),
+        count = inPeriod.size,
+        days = buildTransactionDays(today, inPeriod, categories, accounts),
+        categories = categories,
+        accounts = accounts,
+        categoryUsage = inPeriod.mapNotNull { it.categoryId }.groupingBy { it }.eachCount(),
+    )
+}
 
 fun buildTransactionDays(
     today: LocalDate,
@@ -55,20 +117,25 @@ fun buildTransactionDays(
         }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TransactionsViewModel(
     private val repository: FinanceRepository,
+    private val settings: DeviceSettings,
     private val today: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
 
+    private val period = settings.string(PERIOD_KEY).map { TransactionPeriod.fromKey(it) }.distinctUntilChanged()
+
+    /** Транзакции выбранного периода: год грузится, только пока такой период выбран. */
+    private val periodTransactions = period.flatMapLatest { chosen ->
+        val source = if (chosen.needsYear) repository.transactionsYear else repository.transactions
+        source.map { chosen to it }
+    }
+
     /** null — данные ещё не пришли. */
     val state: StateFlow<TransactionsUiState?> =
-        combine(repository.transactions, repository.categories, repository.accounts) { transactions, categories, accounts ->
-            TransactionsUiState(
-                days = buildTransactionDays(today(), transactions, categories, accounts),
-                categories = categories,
-                accounts = accounts,
-                categoryUsage = transactions.mapNotNull { it.categoryId }.groupingBy { it }.eachCount(),
-            )
+        combine(periodTransactions, repository.categories, repository.accounts) { (chosen, transactions), categories, accounts ->
+            buildTransactions(today(), chosen, transactions, categories, accounts)
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val mutableDraft = MutableStateFlow<TransactionDraft?>(null)
@@ -78,6 +145,11 @@ class TransactionsViewModel(
 
     /** Транзакция в том виде, в каком её открыли на правку: от неё считается сдвиг остатков. */
     private var editing: Transaction? = null
+
+    /** Период запоминается на устройстве и переживает перезапуск. */
+    fun setPeriod(period: TransactionPeriod) {
+        settings.putString(PERIOD_KEY, period.name)
+    }
 
     fun startNew() {
         editing = null

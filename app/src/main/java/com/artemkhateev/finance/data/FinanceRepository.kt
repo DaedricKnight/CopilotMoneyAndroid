@@ -24,6 +24,9 @@ interface FinanceRepository {
 
     /** Транзакции начиная с [transactionsWindowStart], новые сверху. */
     val transactions: Flow<List<Transaction>>
+
+    /** Транзакции за последний год, новые сверху: лента подписывается на них, когда период длиннее окна. */
+    val transactionsYear: Flow<List<Transaction>>
     val recurrings: Flow<List<Recurring>>
 
     val holdings: Flow<List<Holding>>

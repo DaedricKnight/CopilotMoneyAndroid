@@ -158,6 +158,8 @@ fun SegmentedControl(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** Делить ширину поровну: так в ряд помещается больше вариантов, например периоды трат. */
+    fill: Boolean = false,
 ) {
     val colors = FinanceTheme.colors
     Row(
@@ -173,11 +175,14 @@ fun SegmentedControl(
                 text = option,
                 style = FinanceTheme.typography.bodySecondary,
                 color = if (selected) colors.textPrimary else colors.textSecondary,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
+                    .then(if (fill) Modifier.weight(1f) else Modifier)
                     .clip(CircleShape)
                     .then(if (selected) Modifier.background(colors.button) else Modifier)
                     .clickable { onSelect(index) }
-                    .padding(horizontal = 22.dp, vertical = 8.dp),
+                    .padding(horizontal = if (fill) 4.dp else 22.dp, vertical = 8.dp),
             )
         }
     }

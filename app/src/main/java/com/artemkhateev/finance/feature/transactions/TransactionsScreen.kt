@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,11 +31,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.artemkhateev.finance.data.AppGraph
-import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.FinanceCard
 import com.artemkhateev.finance.ui.components.MoneyText
 import com.artemkhateev.finance.ui.components.RoundAddButton
 import com.artemkhateev.finance.ui.components.SectionHeader
+import com.artemkhateev.finance.ui.components.SegmentedControl
 import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.format.SignStyle
 import com.artemkhateev.finance.ui.theme.FinanceTheme
@@ -42,33 +44,44 @@ import com.artemkhateev.finance.ui.theme.color
 
 @Composable
 fun TransactionsScreen(
-    viewModel: TransactionsViewModel = viewModel { TransactionsViewModel(AppGraph.repository) },
+    viewModel: TransactionsViewModel = viewModel { TransactionsViewModel(AppGraph.repository, AppGraph.settings) },
 ) {
     val loaded by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val state = loaded ?: return
     val colors = FinanceTheme.colors
+    val typography = FinanceTheme.typography
 
     Box(Modifier.fillMaxSize()) {
-        if (state.days.isEmpty()) {
-            EmptyState("No transactions yet", "Tap + to add one, or load demo data in settings.")
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                // Запас снизу, чтобы последнюю строку не закрывала кнопка «+».
-                contentPadding = screenContentPadding(extraBottom = 72.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                state.days.forEach { day ->
-                    item(key = "header-${day.date}") { SectionHeader(day.label) }
-                    item(key = "day-${day.date}") {
-                        FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
-                            day.rows.forEachIndexed { index, row ->
-                                if (index > 0) {
-                                    HorizontalDivider(color = colors.border, modifier = Modifier.padding(start = 62.dp))
-                                }
-                                TransactionRow(row, onClick = { viewModel.startEdit(row.transaction) })
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            // Запас снизу, чтобы последнюю строку не закрывала кнопка «+».
+            contentPadding = screenContentPadding(extraBottom = 72.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item(key = "period") { PeriodCard(state, onPeriod = viewModel::setPeriod) }
+            if (state.days.isEmpty()) {
+                item(key = "empty") {
+                    FinanceCard(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 22.dp)) {
+                        Text("Nothing in this period", style = typography.cardTitle, color = colors.textPrimary)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "Tap + to add a transaction, or pick a longer period.",
+                            style = typography.bodySecondary,
+                            color = colors.textSecondary,
+                        )
+                    }
+                }
+            }
+            state.days.forEach { day ->
+                item(key = "header-${day.date}") { SectionHeader(day.label) }
+                item(key = "day-${day.date}") {
+                    FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
+                        day.rows.forEachIndexed { index, row ->
+                            if (index > 0) {
+                                HorizontalDivider(color = colors.border, modifier = Modifier.padding(start = 62.dp))
                             }
+                            TransactionRow(row, onClick = { viewModel.startEdit(row.transaction) })
                         }
                     }
                 }
@@ -95,6 +108,35 @@ fun TransactionsScreen(
             onDismiss = viewModel::dismissDraft,
             categoryUsage = state.categoryUsage,
             onCreateCategory = viewModel::createCategory,
+        )
+    }
+}
+
+/** Траты за выбранный период и сам выбор периода. */
+@Composable
+private fun PeriodCard(state: TransactionsUiState, onPeriod: (TransactionPeriod) -> Unit) {
+    val colors = FinanceTheme.colors
+    val typography = FinanceTheme.typography
+    FinanceCard(
+        hero = true,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        contentPadding = PaddingValues(start = 16.dp, top = 18.dp, end = 16.dp, bottom = 16.dp),
+    ) {
+        Text("Spending", style = typography.cardTitle, color = colors.textPrimary)
+        Spacer(Modifier.height(4.dp))
+        MoneyText(state.spent, style = typography.heroAmount, cents = false)
+        Text("spent ${state.period.summary}", style = typography.bodySecondary, color = colors.textSecondary)
+        Text(
+            text = if (state.count == 1) "1 transaction" else "${state.count} transactions",
+            style = typography.caption,
+            color = colors.textSecondary,
+        )
+        Spacer(Modifier.height(14.dp))
+        SegmentedControl(
+            options = TransactionPeriod.entries.map { it.label },
+            selectedIndex = state.period.ordinal,
+            onSelect = { onPeriod(TransactionPeriod.entries[it]) },
+            fill = true,
         )
     }
 }

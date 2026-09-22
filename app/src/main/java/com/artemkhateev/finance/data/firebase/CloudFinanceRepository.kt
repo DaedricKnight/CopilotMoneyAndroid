@@ -101,6 +101,15 @@ class CloudFinanceRepository(
         ::transactionFrom,
     ).map { list -> list.sortedWith(NewestFirst) }.shared()
 
+    // Отдельный слушатель на год: подписка появляется, только когда на экране трат выбран длинный период.
+    override val transactionsYear: Flow<List<Transaction>> = perUser(
+        { user ->
+            val since = today().minusYears(1).toString()
+            user.collection(TRANSACTIONS).whereGreaterThanOrEqualTo("date", since)
+        },
+        ::transactionFrom,
+    ).map { list -> list.sortedWith(NewestFirst) }.shared()
+
     override val recurrings: Flow<List<Recurring>> = perUser({ it.collection(RECURRINGS) }, ::recurringFrom).shared()
 
     override val holdings: Flow<List<Holding>> = perUser({ it.collection(HOLDINGS) }, ::holdingFrom).shared()

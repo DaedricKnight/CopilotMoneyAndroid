@@ -248,8 +248,8 @@ fun TransactionEditorSheet(
     if (pickingDate) {
         BoundedDatePickerDialog(
             initial = draft.date,
-            // Раньше окна экраны транзакцию не покажут, а в будущем расходов ещё нет.
-            earliest = transactionsWindowStart(today),
+            // Раньше окна новую транзакцию не заводят, но открытую из длинного периода правят как есть.
+            earliest = minOf(transactionsWindowStart(today), draft.date),
             latest = today,
             onPick = { picked ->
                 onChange { it.copy(date = picked) }
