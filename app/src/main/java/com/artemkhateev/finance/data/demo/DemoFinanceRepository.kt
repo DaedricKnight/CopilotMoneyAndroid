@@ -54,7 +54,8 @@ class DemoFinanceRepository(today: LocalDate = LocalDate.now()) : FinanceReposit
     override val categories: Flow<List<Category>> = categoriesState.map { it.sortedWith(CategoryByName) }
     override val accounts: Flow<List<Account>> = accountsState.map { it.sortedWith(AccountByName) }
     override val transactions: Flow<List<Transaction>> = transactionsState
-    override val transactionsYear: Flow<List<Transaction>> = transactionsState
+    override fun transactionsSince(start: LocalDate): Flow<List<Transaction>> =
+        transactionsState.map { list -> list.filter { !it.date.isBefore(start) } }
     override val recurrings: Flow<List<Recurring>> = recurringsState
     override val holdings: Flow<List<Holding>> = holdingsState
     override val portfolioHistory: Flow<List<PortfolioSnapshot>> = historyState

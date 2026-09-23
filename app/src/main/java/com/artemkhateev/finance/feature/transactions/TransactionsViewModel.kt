@@ -8,6 +8,8 @@ import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.TransactionPeriod
+import com.artemkhateev.finance.data.transactionsIncluding
 import com.artemkhateev.finance.feature.categories.SuggestedCategory
 import com.artemkhateev.finance.feature.categories.existingOrNew
 import com.artemkhateev.finance.ui.format.dayLabel
@@ -29,34 +31,6 @@ import java.time.LocalDate
 
 /** Ключ выбранного периода в настройках устройства. */
 private const val PERIOD_KEY = "transactions.period"
-
-/** За какой период показаны траты. Период всегда заканчивается сегодня. */
-enum class TransactionPeriod(val label: String, val summary: String) {
-    Day("1D", "today"),
-    Week("1W", "in the last 7 days"),
-    Month("1M", "in the last month"),
-    Quarter("3M", "in the last 3 months"),
-    HalfYear("6M", "in the last 6 months"),
-    Year("1Y", "in the last year");
-
-    /** Первый день периода. */
-    fun start(today: LocalDate): LocalDate = when (this) {
-        Day -> today
-        Week -> today.minusDays(6)
-        Month -> today.minusMonths(1).plusDays(1)
-        Quarter -> today.minusMonths(3).plusDays(1)
-        HalfYear -> today.minusMonths(6).plusDays(1)
-        Year -> today.minusYears(1).plusDays(1)
-    }
-
-    /** До месяца хватает [FinanceRepository.transactions]; дальше нужен [FinanceRepository.transactionsYear]. */
-    val needsYear: Boolean get() = ordinal > Month.ordinal
-
-    companion object {
-        /** Сохранённое значение; незнакомое или пустое — месяц. */
-        fun fromKey(key: String?): TransactionPeriod = entries.firstOrNull { it.name == key } ?: Month
-    }
-}
 
 data class TransactionRowUi(val transaction: Transaction, val category: Category?, val accountName: String)
 
@@ -126,10 +100,10 @@ class TransactionsViewModel(
 
     private val period = settings.string(PERIOD_KEY).map { TransactionPeriod.fromKey(it) }.distinctUntilChanged()
 
-    /** Транзакции выбранного периода: год грузится, только пока такой период выбран. */
+    /** Транзакции выбранного периода: длинная история грузится, только пока такой период выбран. */
     private val periodTransactions = period.flatMapLatest { chosen ->
-        val source = if (chosen.needsYear) repository.transactionsYear else repository.transactions
-        source.map { chosen to it }
+        val day = today()
+        repository.transactionsIncluding(chosen.start(day), day).map { chosen to it }
     }
 
     /** null — данные ещё не пришли. */

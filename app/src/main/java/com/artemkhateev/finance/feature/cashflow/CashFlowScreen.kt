@@ -23,41 +23,67 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.artemkhateev.finance.data.AppGraph
+import com.artemkhateev.finance.data.DeviceSettings
 import com.artemkhateev.finance.data.FinanceRepository
+import com.artemkhateev.finance.data.model.TransactionPeriod
+import com.artemkhateev.finance.data.transactionsIncluding
 import com.artemkhateev.finance.ui.components.BarChart
 import com.artemkhateev.finance.ui.components.ChartBar
 import com.artemkhateev.finance.ui.components.ChartPart
 import com.artemkhateev.finance.ui.components.DeltaBadge
 import com.artemkhateev.finance.ui.components.FinanceCard
 import com.artemkhateev.finance.ui.components.MoneyText
+import com.artemkhateev.finance.ui.components.SegmentedControl
 import com.artemkhateev.finance.ui.components.appendMoney
 import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.format.SignStyle
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 
+/** Ключ выбранного периода в настройках устройства. */
+private const val PERIOD_KEY = "cashflow.period"
+
+@OptIn(ExperimentalCoroutinesApi::class)
 class CashFlowViewModel(
-    repository: FinanceRepository,
-    today: () -> LocalDate = { LocalDate.now() },
+    private val repository: FinanceRepository,
+    private val settings: DeviceSettings,
+    private val today: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
+
+    private val period = settings.string(PERIOD_KEY).map { TransactionPeriod.fromKey(it) }.distinctUntilChanged()
+
+    /** Нужны и сам период, и такой же перед ним: длинная история грузится, только пока такой период выбран. */
+    private val periodTransactions = period.flatMapLatest { chosen ->
+        val day = today()
+        repository.transactionsIncluding(chosen.previous(day).start, day).map { chosen to it }
+    }
 
     /** null — данные ещё не пришли. */
     val state: StateFlow<CashFlowUiState?> =
-        combine(repository.transactions, repository.categories) { transactions, categories ->
-            buildCashFlow(today(), transactions, categories)
+        combine(periodTransactions, repository.categories) { (chosen, transactions), categories ->
+            buildCashFlow(today(), chosen, transactions, categories)
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Период запоминается на устройстве и переживает перезапуск. */
+    fun setPeriod(period: TransactionPeriod) {
+        settings.putString(PERIOD_KEY, period.name)
+    }
 }
 
 @Composable
 fun CashFlowScreen(
-    viewModel: CashFlowViewModel = viewModel { CashFlowViewModel(AppGraph.repository) },
+    viewModel: CashFlowViewModel = viewModel { CashFlowViewModel(AppGraph.repository, AppGraph.settings) },
 ) {
     val loaded by viewModel.state.collectAsStateWithLifecycle()
     val state = loaded ?: return
@@ -68,6 +94,14 @@ fun CashFlowScreen(
         contentPadding = screenContentPadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item(key = "period") {
+            SegmentedControl(
+                options = TransactionPeriod.entries.map { it.label },
+                selectedIndex = state.period.ordinal,
+                onSelect = { viewModel.setPeriod(TransactionPeriod.entries[it]) },
+                fill = true,
+            )
+        }
         item(key = "net") {
             val netColor = if (state.net.current.minor >= 0) colors.positiveText else colors.negativeText
             FlowCard(
@@ -144,12 +178,15 @@ private fun FlowCard(
             color = colors.textSecondary,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(14.dp))
-        BarChart(
-            bars = bars,
-            firstLabel = state.firstLabel,
-            lastLabel = state.lastLabel,
-            modifier = Modifier.fillMaxWidth().height(150.dp),
-        )
+        // За один день столбиков нет: хватает сравнения сумм.
+        if (bars.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            BarChart(
+                bars = bars,
+                firstLabel = state.firstLabel,
+                lastLabel = state.lastLabel,
+                modifier = Modifier.fillMaxWidth().height(150.dp),
+            )
+        }
     }
 }

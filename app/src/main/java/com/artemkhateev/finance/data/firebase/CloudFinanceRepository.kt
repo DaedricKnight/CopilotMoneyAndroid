@@ -48,6 +48,7 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.time.LocalDate
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 
@@ -101,14 +102,15 @@ class CloudFinanceRepository(
         ::transactionFrom,
     ).map { list -> list.sortedWith(NewestFirst) }.shared()
 
-    // Отдельный слушатель на год: подписка появляется, только когда на экране трат выбран длинный период.
-    override val transactionsYear: Flow<List<Transaction>> = perUser(
-        { user ->
-            val since = today().minusYears(1).toString()
-            user.collection(TRANSACTIONS).whereGreaterThanOrEqualTo("date", since)
-        },
-        ::transactionFrom,
-    ).map { list -> list.sortedWith(NewestFirst) }.shared()
+    /** Слушатели длинной истории по дате начала: экраны с одинаковым запросом делят один. */
+    private val history = ConcurrentHashMap<LocalDate, Flow<List<Transaction>>>()
+
+    override fun transactionsSince(start: LocalDate): Flow<List<Transaction>> = history.computeIfAbsent(start) {
+        perUser(
+            { user -> user.collection(TRANSACTIONS).whereGreaterThanOrEqualTo("date", start.toString()) },
+            ::transactionFrom,
+        ).map { list -> list.sortedWith(NewestFirst) }.shared()
+    }
 
     override val recurrings: Flow<List<Recurring>> = perUser({ it.collection(RECURRINGS) }, ::recurringFrom).shared()
 

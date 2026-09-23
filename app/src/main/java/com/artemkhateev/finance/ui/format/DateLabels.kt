@@ -44,8 +44,12 @@ fun weekdayName(day: DayOfWeek): String = day.getDisplayName(TextStyle.FULL, Loc
 /** «Mar». */
 fun monthShort(month: Month): String = month.getDisplayName(TextStyle.SHORT, Locale.US)
 
-/** «Sep 1 – Sep 12». */
-fun periodLabel(start: LocalDate, end: LocalDate): String = "${shortDate(start)} – ${shortDate(end)}"
+/** Отрезок дат: «Sep 1 – Sep 15»; один день — «Sep 15»; через границу года — «Dec 16, 2025 – Jan 15, 2026». */
+fun periodLabel(start: LocalDate, end: LocalDate): String = when {
+    start == end -> shortDate(start)
+    start.year != end.year -> "${longDate(start)} – ${longDate(end)}"
+    else -> "${shortDate(start)} – ${shortDate(end)}"
+}
 
 /** День месяца, как в референсе: 1st, 2nd, 3rd, 4th … 11th, 12th, 13th … 21st. */
 fun ordinalDay(day: Int): String {

@@ -25,8 +25,8 @@ interface FinanceRepository {
     /** Транзакции начиная с [transactionsWindowStart], новые сверху. */
     val transactions: Flow<List<Transaction>>
 
-    /** Транзакции за последний год, новые сверху: лента подписывается на них, когда период длиннее окна. */
-    val transactionsYear: Flow<List<Transaction>>
+    /** Транзакции начиная с [start], новые сверху: для экранов, которым мало окна, — см. [transactionsIncluding]. */
+    fun transactionsSince(start: LocalDate): Flow<List<Transaction>>
     val recurrings: Flow<List<Recurring>>
 
     val holdings: Flow<List<Holding>>
@@ -99,8 +99,23 @@ interface FinanceRepository {
     suspend fun importTransactions(transactions: List<Transaction>)
 }
 
-/** Экраны показывают прошлый и текущий месяц: более ранние транзакции не загружаются и не вводятся. */
+/** Обычное окно загрузки — прошлый и текущий месяц: его хватает большинству экранов, и раньше него транзакции не вводят. */
 fun transactionsWindowStart(today: LocalDate): LocalDate = today.minusMonths(1).withDayOfMonth(1)
+
+/**
+ * С какой даты грузить транзакции, чтобы в них попал [earliest]: null — хватает обычного окна, иначе на целые годы
+ * назад, чтобы экраны с разными периодами делили один слушатель.
+ */
+fun historyStart(earliest: LocalDate, today: LocalDate): LocalDate? {
+    if (!earliest.isBefore(transactionsWindowStart(today))) return null
+    var years = 1L
+    while (earliest.isBefore(today.minusYears(years))) years++
+    return today.minusYears(years)
+}
+
+/** Транзакции, среди которых есть все с [earliest] по сегодня: обычное окно или история на нужное число лет. */
+fun FinanceRepository.transactionsIncluding(earliest: LocalDate, today: LocalDate): Flow<List<Transaction>> =
+    historyStart(earliest, today)?.let { transactionsSince(it) } ?: transactions
 
 /**
  * Как сохранение или удаление транзакции сдвигает остатки: id счёта → сдвиг в центах.

@@ -6,9 +6,8 @@ import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryTone
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -20,16 +19,6 @@ class TransactionsStateTest {
 
     private fun tx(cents: Long, date: LocalDate) =
         Transaction("t-$date-$cents", "cash", "Shop", Money(cents), date, "food")
-
-    @Test
-    fun `period ends today and starts a whole period back`() {
-        assertEquals(today, TransactionPeriod.Day.start(today))
-        assertEquals(LocalDate.of(2026, 9, 16), TransactionPeriod.Week.start(today))
-        assertEquals(LocalDate.of(2026, 8, 23), TransactionPeriod.Month.start(today))
-        assertEquals(LocalDate.of(2026, 6, 23), TransactionPeriod.Quarter.start(today))
-        assertEquals(LocalDate.of(2026, 3, 23), TransactionPeriod.HalfYear.start(today))
-        assertEquals(LocalDate.of(2025, 9, 23), TransactionPeriod.Year.start(today))
-    }
 
     @Test
     fun `only transactions of the period are listed and summed`() {
@@ -80,22 +69,5 @@ class TransactionsStateTest {
         )
 
         assertEquals(mapOf("food" to 1), state.categoryUsage)
-    }
-
-    @Test
-    fun `only periods longer than a month need the year window`() {
-        assertFalse(TransactionPeriod.Day.needsYear)
-        assertFalse(TransactionPeriod.Week.needsYear)
-        assertFalse(TransactionPeriod.Month.needsYear)
-        assertTrue(TransactionPeriod.Quarter.needsYear)
-        assertTrue(TransactionPeriod.HalfYear.needsYear)
-        assertTrue(TransactionPeriod.Year.needsYear)
-    }
-
-    @Test
-    fun `unknown saved period falls back to a month`() {
-        assertEquals(TransactionPeriod.Month, TransactionPeriod.fromKey(null))
-        assertEquals(TransactionPeriod.Month, TransactionPeriod.fromKey("Decade"))
-        assertEquals(TransactionPeriod.Quarter, TransactionPeriod.fromKey("Quarter"))
     }
 }

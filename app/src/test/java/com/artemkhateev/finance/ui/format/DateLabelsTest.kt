@@ -18,6 +18,8 @@ class DateLabelsTest {
     @Test
     fun `period label uses short month names`() {
         assertEquals("Aug 1 – Aug 15", periodLabel(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 15)))
+        assertEquals("Sep 15", periodLabel(LocalDate.of(2026, 9, 15), LocalDate.of(2026, 9, 15)))
+        assertEquals("Dec 16, 2025 – Jan 15, 2026", periodLabel(LocalDate.of(2025, 12, 16), LocalDate.of(2026, 1, 15)))
     }
 
     @Test

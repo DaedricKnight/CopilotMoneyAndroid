@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.artemkhateev.finance.data.AppGraph
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import com.artemkhateev.finance.ui.components.FinanceCard
 import com.artemkhateev.finance.ui.components.MoneyText
 import com.artemkhateev.finance.ui.components.RoundAddButton
@@ -111,6 +112,17 @@ fun TransactionsScreen(
         )
     }
 }
+
+/** Подпись под суммой трат: «spent in the last 7 days». */
+private val TransactionPeriod.summary: String
+    get() = when (this) {
+        TransactionPeriod.Day -> "today"
+        TransactionPeriod.Week -> "in the last 7 days"
+        TransactionPeriod.Month -> "in the last month"
+        TransactionPeriod.Quarter -> "in the last 3 months"
+        TransactionPeriod.HalfYear -> "in the last 6 months"
+        TransactionPeriod.Year -> "in the last year"
+    }
 
 /** Траты за выбранный период и сам выбор периода. */
 @Composable
