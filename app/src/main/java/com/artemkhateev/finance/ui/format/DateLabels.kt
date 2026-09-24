@@ -1,5 +1,6 @@
 package com.artemkhateev.finance.ui.format
 
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.Month
@@ -65,3 +66,14 @@ fun ordinalDay(day: Int): String {
     }
     return "$day$suffix"
 }
+
+/** Когда: «today», «in the last 7 days»… — для подписей вроде «spent in the last 7 days». */
+val TransactionPeriod.recent: String
+    get() = when (this) {
+        TransactionPeriod.Day -> "today"
+        TransactionPeriod.Week -> "in the last 7 days"
+        TransactionPeriod.Month -> "in the last month"
+        TransactionPeriod.Quarter -> "in the last 3 months"
+        TransactionPeriod.HalfYear -> "in the last 6 months"
+        TransactionPeriod.Year -> "in the last year"
+    }

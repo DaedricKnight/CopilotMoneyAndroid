@@ -5,6 +5,7 @@ import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.CategoryTone
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalDate
@@ -77,8 +78,9 @@ class CategoriesStateTest {
     }
 
     @Test
-    fun `transactions sort counts only this month`() {
-        val lastMonth = LocalDate.of(2026, 8, 20)
+    fun `transactions sort counts only the period`() {
+        // Месяц — 16 августа – 15 сентября: 10 августа в него не входит.
+        val lastMonth = LocalDate.of(2026, 8, 10)
         val state = buildCategories(
             today,
             listOf(travel, gifts),
@@ -110,15 +112,59 @@ class CategoriesStateTest {
     }
 
     @Test
-    fun `detail shows only this month transactions of the category`() {
+    fun `detail shows only transactions of the period`() {
         val detail = buildCategoryDetail(
             today,
+            TransactionPeriod.Month,
             "food",
             listOf(food),
-            listOf(tx(-1_000, "food"), tx(-2_000, "food", LocalDate.of(2026, 8, 30)), tx(-3_000, "leisure")),
+            listOf(tx(-1_000, "food"), tx(-2_000, "food", LocalDate.of(2026, 8, 10)), tx(-3_000, "leisure")),
         )
 
         assertEquals(Money(1_000), detail?.amount)
         assertEquals(1, detail?.transactions?.size)
+    }
+
+    @Test
+    fun `amounts follow the chosen period`() {
+        val transactions = listOf(
+            tx(-1_000, "gifts", today),
+            tx(-2_000, "gifts", today.minusDays(10)),
+            tx(-4_000, "gifts", LocalDate.of(2026, 3, 1)),
+        )
+
+        fun spentOnGifts(period: TransactionPeriod) =
+            buildCategories(today, listOf(gifts), transactions, period = period).others.single().amount
+
+        assertEquals(Money(1_000), spentOnGifts(TransactionPeriod.Day))
+        assertEquals(Money(1_000), spentOnGifts(TransactionPeriod.Week))
+        assertEquals(Money(3_000), spentOnGifts(TransactionPeriod.Month))
+        assertEquals(Money(7_000), spentOnGifts(TransactionPeriod.Year))
+    }
+
+    @Test
+    fun `monthly budgets are scaled to the period`() {
+        // Food — €300 в месяц.
+        val spent = listOf(tx(-5_000, "food", today))
+
+        val week = buildCategories(today, listOf(food), spent, period = TransactionPeriod.Week)
+        assertEquals(Money(6_923), week.budgets.single().budget)
+        assertEquals(Money(1_923), week.totalLeft)
+
+        val quarter = buildCategories(today, listOf(food), spent, period = TransactionPeriod.Quarter)
+        assertEquals(Money(90_000), quarter.budgets.single().budget)
+        assertEquals(Money(85_000), quarter.totalLeft)
+
+        assertEquals(Money(986), periodBudget(Money(30_000), TransactionPeriod.Day))
+        assertEquals(Money(30_000), periodBudget(Money(30_000), TransactionPeriod.Month))
+        assertEquals(Money(1), periodBudget(Money(10), TransactionPeriod.Day))
+    }
+
+    @Test
+    fun `detail budget and dates follow the period`() {
+        val detail = buildCategoryDetail(today, TransactionPeriod.Quarter, "food", listOf(food), listOf(tx(-1_000, "food")))
+
+        assertEquals(Money(90_000), detail?.budget)
+        assertEquals("Jun 16 – Sep 15", detail?.periodDates)
     }
 }

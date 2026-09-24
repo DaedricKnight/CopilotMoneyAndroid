@@ -39,6 +39,7 @@ import com.artemkhateev.finance.ui.components.SectionHeader
 import com.artemkhateev.finance.ui.components.SegmentedControl
 import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.format.SignStyle
+import com.artemkhateev.finance.ui.format.recent
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.TONE_BACKGROUND_ALPHA
 import com.artemkhateev.finance.ui.theme.color
@@ -113,17 +114,6 @@ fun TransactionsScreen(
     }
 }
 
-/** Подпись под суммой трат: «spent in the last 7 days». */
-private val TransactionPeriod.summary: String
-    get() = when (this) {
-        TransactionPeriod.Day -> "today"
-        TransactionPeriod.Week -> "in the last 7 days"
-        TransactionPeriod.Month -> "in the last month"
-        TransactionPeriod.Quarter -> "in the last 3 months"
-        TransactionPeriod.HalfYear -> "in the last 6 months"
-        TransactionPeriod.Year -> "in the last year"
-    }
-
 /** Траты за выбранный период и сам выбор периода. */
 @Composable
 private fun PeriodCard(state: TransactionsUiState, onPeriod: (TransactionPeriod) -> Unit) {
@@ -137,7 +127,7 @@ private fun PeriodCard(state: TransactionsUiState, onPeriod: (TransactionPeriod)
         Text("Spending", style = typography.cardTitle, color = colors.textPrimary)
         Spacer(Modifier.height(4.dp))
         MoneyText(state.spent, style = typography.heroAmount, cents = false)
-        Text("spent ${state.period.summary}", style = typography.bodySecondary, color = colors.textSecondary)
+        Text("spent ${state.period.recent}", style = typography.bodySecondary, color = colors.textSecondary)
         Text(
             text = if (state.count == 1) "1 transaction" else "${state.count} transactions",
             style = typography.caption,

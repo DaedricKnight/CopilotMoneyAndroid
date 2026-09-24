@@ -58,6 +58,8 @@ import com.artemkhateev.finance.data.DeviceSettings
 import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
+import com.artemkhateev.finance.data.model.TransactionPeriod
+import com.artemkhateev.finance.data.transactionsIncluding
 import com.artemkhateev.finance.ui.components.CategoryChip
 import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.FinanceCard
@@ -69,15 +71,20 @@ import com.artemkhateev.finance.ui.components.appendMoney
 import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.format.SignStyle
 import com.artemkhateev.finance.ui.format.dayLabel
+import com.artemkhateev.finance.ui.format.recent
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -87,16 +94,28 @@ import kotlin.math.roundToInt
 /** Ключ выбранной сортировки в настройках устройства. */
 private const val SORT_KEY = "categories.sort"
 
+/** Ключ выбранного периода в настройках устройства. */
+private const val PERIOD_KEY = "categories.period"
+
+@OptIn(ExperimentalCoroutinesApi::class)
 class CategoriesViewModel(
     private val repository: FinanceRepository,
     private val settings: DeviceSettings,
-    today: () -> LocalDate = { LocalDate.now() },
+    private val today: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
+
+    private val period = settings.string(PERIOD_KEY).map { TransactionPeriod.fromKey(it) }.distinctUntilChanged()
+
+    /** Транзакции выбранного периода: длинная история грузится, только пока такой период выбран. */
+    private val periodTransactions = period.flatMapLatest { chosen ->
+        val day = today()
+        repository.transactionsIncluding(chosen.start(day), day).map { chosen to it }
+    }
 
     /** null — данные ещё не пришли. */
     val state: StateFlow<CategoriesUiState?> =
-        combine(repository.categories, repository.transactions, settings.string(SORT_KEY)) { categories, transactions, sort ->
-            buildCategories(today(), categories, transactions, CategorySort.fromKey(sort))
+        combine(repository.categories, periodTransactions, settings.string(SORT_KEY)) { categories, (chosen, transactions), sort ->
+            buildCategories(today(), categories, transactions, CategorySort.fromKey(sort), chosen)
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Все категории: по ним форма проверяет, не занято ли имя. */
@@ -107,8 +126,8 @@ class CategoriesViewModel(
 
     /** Открытая карточка категории; null — закрыта. */
     val detail: StateFlow<CategoryDetailUi?> =
-        combine(selectedId, repository.categories, repository.transactions) { id, categories, transactions ->
-            id?.let { buildCategoryDetail(today(), it, categories, transactions) }
+        combine(selectedId, repository.categories, periodTransactions) { id, categories, (chosen, transactions) ->
+            id?.let { buildCategoryDetail(today(), chosen, it, categories, transactions) }
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val mutableDraft = MutableStateFlow<CategoryDraft?>(null)
@@ -158,6 +177,11 @@ class CategoriesViewModel(
     /** Порядок категорий запоминается на устройстве и переживает перезапуск. */
     fun sortBy(sort: CategorySort) {
         settings.putString(SORT_KEY, sort.name)
+    }
+
+    /** Период запоминается на устройстве и переживает перезапуск. */
+    fun setPeriod(period: TransactionPeriod) {
+        settings.putString(PERIOD_KEY, period.name)
     }
 
     private val mutableSuggestionsOpen = MutableStateFlow(false)
@@ -212,6 +236,14 @@ fun CategoriesScreen(
                 contentPadding = screenContentPadding(extraBottom = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                item(key = "period") {
+                    SegmentedControl(
+                        options = TransactionPeriod.entries.map { it.label },
+                        selectedIndex = state.period.ordinal,
+                        onSelect = { viewModel.setPeriod(TransactionPeriod.entries[it]) },
+                        fill = true,
+                    )
+                }
                 item(key = "sort") {
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                         SortMenu(state.sort, onSort = viewModel::sortBy)
@@ -353,6 +385,11 @@ private fun BudgetsCard(
         contentPadding = PaddingValues(start = 16.dp, top = 18.dp, end = 16.dp, bottom = 16.dp),
     ) {
         Text("Budgets", style = typography.cardTitle, color = colors.textPrimary)
+        Spacer(Modifier.height(4.dp))
+        Text(state.periodDates, style = typography.bodySecondary, color = colors.textSecondary)
+        budgetScaleNote(state.period)?.let { note ->
+            Text(note, style = typography.caption, color = colors.textSecondary)
+        }
         Spacer(Modifier.height(12.dp))
         SegmentedControl(
             options = listOf("Amount", "Percentage"),
@@ -407,6 +444,16 @@ private fun BudgetsCard(
             }
         }
     }
+}
+
+/** Как бюджеты пересчитаны на период; у месяца — null: бюджет как есть. */
+private fun budgetScaleNote(period: TransactionPeriod): String? = when (period) {
+    TransactionPeriod.Day -> "A day's share of monthly budgets"
+    TransactionPeriod.Week -> "A week's share of monthly budgets"
+    TransactionPeriod.Month -> null
+    TransactionPeriod.Quarter -> "Monthly budgets × 3"
+    TransactionPeriod.HalfYear -> "Monthly budgets × 6"
+    TransactionPeriod.Year -> "Monthly budgets × 12"
 }
 
 @Composable
@@ -521,12 +568,12 @@ private fun CategoryDetailSheet(detail: CategoryDetailUi, onEdit: () -> Unit, on
             Text(
                 text = buildAnnotatedString {
                     when {
-                        income -> append("received this month")
-                        budget == null -> append("spent this month")
+                        income -> append("received ${detail.period.recent}")
+                        budget == null -> append("spent ${detail.period.recent}")
                         else -> {
                             append("spent of ")
                             appendMoney(budget, typography.bodySecondary.fontSize, cents = false)
-                            append(" budget")
+                            append(" budget ${detail.period.recent}")
                         }
                     }
                 },
@@ -547,10 +594,10 @@ private fun CategoryDetailSheet(detail: CategoryDetailUi, onEdit: () -> Unit, on
                 }
             }
             Spacer(Modifier.height(8.dp))
-            SectionHeader("This month")
+            SectionHeader(detail.periodDates)
             Spacer(Modifier.height(8.dp))
             if (detail.transactions.isEmpty()) {
-                Text("No transactions this month", style = typography.bodySecondary, color = colors.textSecondary)
+                Text("No transactions in this period", style = typography.bodySecondary, color = colors.textSecondary)
             } else {
                 FinanceCard(contentPadding = PaddingValues(vertical = 4.dp)) {
                     detail.transactions.forEachIndexed { index, transaction ->
