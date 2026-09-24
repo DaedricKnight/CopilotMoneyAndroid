@@ -27,6 +27,18 @@ class TransactionPeriodTest {
     }
 
     @Test
+    fun `calendar period contains today`() {
+        // 22 сентября 2026 года — вторник, неделя идёт с понедельника 21-го.
+        assertEquals(today..today, TransactionPeriod.Day.calendar(today))
+        assertEquals(LocalDate.of(2026, 9, 21)..LocalDate.of(2026, 9, 27), TransactionPeriod.Week.calendar(today))
+        assertEquals(LocalDate.of(2026, 9, 21), TransactionPeriod.Week.calendar(LocalDate.of(2026, 9, 27)).start)
+        assertEquals(LocalDate.of(2026, 9, 1)..LocalDate.of(2026, 9, 30), TransactionPeriod.Month.calendar(today))
+        assertEquals(LocalDate.of(2026, 7, 1)..LocalDate.of(2026, 9, 30), TransactionPeriod.Quarter.calendar(today))
+        assertEquals(LocalDate.of(2026, 7, 1)..LocalDate.of(2026, 12, 31), TransactionPeriod.HalfYear.calendar(today))
+        assertEquals(LocalDate.of(2026, 1, 1)..LocalDate.of(2026, 12, 31), TransactionPeriod.Year.calendar(today))
+    }
+
+    @Test
     fun `unknown saved period falls back to a month`() {
         assertEquals(TransactionPeriod.Month, TransactionPeriod.fromKey(null))
         assertEquals(TransactionPeriod.Month, TransactionPeriod.fromKey("Decade"))

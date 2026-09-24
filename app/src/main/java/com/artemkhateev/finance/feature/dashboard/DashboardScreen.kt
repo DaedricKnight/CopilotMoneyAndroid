@@ -41,6 +41,8 @@ import com.artemkhateev.finance.ui.components.MoneyText
 import com.artemkhateev.finance.ui.components.PillButton
 import com.artemkhateev.finance.ui.components.ProgressRing
 import com.artemkhateev.finance.ui.components.SectionHeader
+import com.artemkhateev.finance.ui.components.SegmentedControl
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import com.artemkhateev.finance.ui.components.SpendingLineChart
 import com.artemkhateev.finance.ui.components.appendMoney
 import com.artemkhateev.finance.ui.components.screenContentPadding
@@ -49,7 +51,7 @@ import com.artemkhateev.finance.ui.theme.FinanceTheme
 
 @Composable
 fun DashboardScreen(
-    viewModel: DashboardViewModel = viewModel { DashboardViewModel(AppGraph.repository) },
+    viewModel: DashboardViewModel = viewModel { DashboardViewModel(AppGraph.repository, AppGraph.settings) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val ui = state ?: return
@@ -59,7 +61,15 @@ fun DashboardScreen(
         contentPadding = screenContentPadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "spending") { SpendingCard(ui.spending) }
+        item(key = "period") {
+            SegmentedControl(
+                options = TransactionPeriod.entries.map { it.label },
+                selectedIndex = ui.period.ordinal,
+                onSelect = { viewModel.setPeriod(TransactionPeriod.entries[it]) },
+                fill = true,
+            )
+        }
+        item(key = "spending") { SpendingCard(ui.spending, ui.period, ui.periodDates) }
         ui.toReview?.let { group ->
             item(key = "review-header") { SectionHeader("To review", action = "View all") }
             item(key = "review") {
@@ -75,8 +85,19 @@ fun DashboardScreen(
     }
 }
 
+/** Каким периодом бюджет: «budgeted this week». */
+private val TransactionPeriod.current: String
+    get() = when (this) {
+        TransactionPeriod.Day -> "today"
+        TransactionPeriod.Week -> "this week"
+        TransactionPeriod.Month -> "this month"
+        TransactionPeriod.Quarter -> "this quarter"
+        TransactionPeriod.HalfYear -> "this half-year"
+        TransactionPeriod.Year -> "this year"
+    }
+
 @Composable
-private fun SpendingCard(spending: SpendingLineUi) {
+private fun SpendingCard(spending: SpendingLineUi, period: TransactionPeriod, periodDates: String) {
     val colors = FinanceTheme.colors
     val typography = FinanceTheme.typography
     val overBudget = spending.left.minor < 0
@@ -98,11 +119,12 @@ private fun SpendingCard(spending: SpendingLineUi) {
                     text = buildAnnotatedString {
                         append("out of ")
                         appendMoney(spending.budget, typography.bodySecondary.fontSize, cents = false)
-                        append(" budgeted")
+                        append(" budgeted ${period.current}")
                     },
                     style = typography.bodySecondary,
                     color = colors.textSecondary,
                 )
+                Text(periodDates, style = typography.caption, color = colors.textSecondary)
             }
             Icon(
                 imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
@@ -111,21 +133,24 @@ private fun SpendingCard(spending: SpendingLineUi) {
                 modifier = Modifier.align(Alignment.TopEnd).size(22.dp),
             )
         }
-        SpendingLineChart(
-            dailyCumulative = spending.dailyCumulative,
-            pace = spending.pace,
-            label = buildAnnotatedString {
-                appendMoney(spending.paceDelta.abs(), typography.caption.fontSize, cents = false)
-                append(if (underPace) " under" else " over")
-            },
-            labelColor = if (underPace) colors.tooltipPositive else colors.negative,
-            lineColors = if (underPace) {
-                listOf(colors.chartLineStart, colors.chartLineEnd)
-            } else {
-                listOf(colors.warning, colors.negative)
-            },
-            modifier = Modifier.fillMaxWidth().height(130.dp),
-        )
+        // За один день линии нет: хватает остатка.
+        if (period != TransactionPeriod.Day) {
+            SpendingLineChart(
+                dailyCumulative = spending.dailyCumulative,
+                pace = spending.pace,
+                label = buildAnnotatedString {
+                    appendMoney(spending.paceDelta.abs(), typography.caption.fontSize, cents = false)
+                    append(if (underPace) " under" else " over")
+                },
+                labelColor = if (underPace) colors.tooltipPositive else colors.negative,
+                lineColors = if (underPace) {
+                    listOf(colors.chartLineStart, colors.chartLineEnd)
+                } else {
+                    listOf(colors.warning, colors.negative)
+                },
+                modifier = Modifier.fillMaxWidth().height(130.dp),
+            )
+        }
     }
 }
 

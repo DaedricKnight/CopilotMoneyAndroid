@@ -7,6 +7,7 @@ import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.RecurringSchedule
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.DayOfWeek
@@ -93,5 +94,56 @@ class DashboardStateTest {
         assertEquals("So far today", state.toReview?.label)
         assertEquals(1, state.toReview?.rows?.size)
         assertEquals(2, state.reviewCount)
+    }
+
+    @Test
+    fun `a quarter budgets three months and runs to its end`() {
+        val july = Transaction("july", "acc", "Shop", Money.of(-80.0), LocalDate.of(2026, 7, 3), "food")
+        val state = buildDashboard(today, listOf(food), listOf(july, tx(2, -40.0), tx(10, -60.0)), period = TransactionPeriod.Quarter)
+
+        assertEquals(Money.of(900.0), state.spending.budget)
+        assertEquals(Money.of(720.0), state.spending.left)
+        // 1 июля – 30 сентября — 92 дня, по 15 сентября прошло 77.
+        assertEquals(92, state.spending.pace.size)
+        assertEquals(77, state.spending.dailyCumulative.size)
+        assertEquals("Jul 1 – Sep 30", state.periodDates)
+    }
+
+    @Test
+    fun `a week gets its bills and a share of the rest`() {
+        val rent = Category("rent", "Rent", "🔑", CategoryTone.Orange, monthlyBudget = Money.of(1000.0))
+        val bill = Recurring("r", "Rent", "🏠", Money.of(1000.0), RecurringSchedule.Monthly(14), categoryId = "rent")
+
+        // Неделя 14–20 сентября: аренда 14-го — весь её бюджет, у еды — 12/52 от €300.
+        val rentWeek = buildDashboard(
+            today,
+            listOf(rent, food),
+            listOf(tx(14, -1000.0, category = "rent")),
+            listOf(bill),
+            TransactionPeriod.Week,
+        )
+        assertEquals(Money(100_000 + 6_923), rentWeek.spending.budget)
+        assertEquals(BudgetStatus.OnTrack, rentWeek.budgets.single { it.categoryId == "rent" }.status)
+
+        // Следующая неделя без аренды: денег на неё не обещаем.
+        val nextWeek = buildDashboard(LocalDate.of(2026, 9, 22), listOf(rent), emptyList(), listOf(bill), TransactionPeriod.Week)
+        assertEquals(Money(1), nextWeek.spending.budget)
+    }
+
+    @Test
+    fun `a day gets its share of the month`() {
+        val state = buildDashboard(today, listOf(food), listOf(tx(15, -5.0)), period = TransactionPeriod.Day)
+
+        assertEquals(Money(986), state.spending.budget)
+        assertEquals(1, state.spending.pace.size)
+        assertEquals("Sep 15", state.periodDates)
+    }
+
+    @Test
+    fun `review ignores the period`() {
+        val old = Transaction("old", "acc", "Shop", Money.of(-9.0), LocalDate.of(2026, 3, 2), "food", reviewed = false)
+        val state = buildDashboard(today, listOf(food), listOf(old, tx(14, -7.0, reviewed = false)), period = TransactionPeriod.Year)
+
+        assertEquals(1, state.reviewCount)
     }
 }
