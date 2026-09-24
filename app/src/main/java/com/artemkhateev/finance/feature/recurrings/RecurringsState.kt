@@ -6,11 +6,13 @@ import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.RecurringSchedule
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import com.artemkhateev.finance.data.model.dueDates
 import com.artemkhateev.finance.data.model.sumOfMoney
 import com.artemkhateev.finance.ui.format.longDate
 import com.artemkhateev.finance.ui.format.monthShort
 import com.artemkhateev.finance.ui.format.ordinalDay
+import com.artemkhateev.finance.ui.format.periodLabel
 import com.artemkhateev.finance.ui.format.shortDate
 import com.artemkhateev.finance.ui.format.weekdayName
 import com.artemkhateev.finance.ui.format.weekdayShort
@@ -20,36 +22,43 @@ import java.time.Month
 data class RecurringTileUi(
     val recurring: Recurring,
     val tone: CategoryTone?,
-    /** Все списания этого месяца уже найдены. */
+    /** Все списания периода уже найдены. */
     val paid: Boolean,
-    /** Сумма списания; у единственного в месяце — фактическая, если оно найдено. */
+    /** Сумма списания; у единственного в периоде — фактическая, если оно найдено. */
     val amount: Money,
     val dueLabel: String,
-    /** Сколько раз платёж списывается в этом месяце: у еженедельного — 4 или 5. */
+    /** Сколько раз платёж списывается в периоде: у еженедельного за месяц — 4 или 5. */
     val dueCount: Int,
     /** Сколько из этих списаний уже найдено среди расходов. */
     val paidCount: Int,
-    /** Сколько по платежу уже ушло в этом месяце. */
+    /** Сколько по платежу уже ушло в периоде. */
     val paidAmount: Money,
-    /** Сколько по платежу ещё предстоит в этом месяце. */
+    /** Сколько по платежу ещё предстоит в периоде. */
     val leftAmount: Money,
 )
 
-/** Платёж, который в этом месяце не списывается, — годовой другого месяца. */
+/** Платёж, который в этом периоде не списывается: следующее списание — после него. */
 data class UpcomingRecurringUi(
     val recurring: Recurring,
     val nextDue: LocalDate,
     val dueLabel: String,
+    /** «Weekly», «Monthly» или «Yearly». */
+    val frequency: String,
 )
 
 data class RecurringsUiState(
     val leftToPay: Money,
     val paidSoFar: Money,
-    /** Доля оплаченного от суммы всех списаний месяца, 0..1. */
+    /** Доля оплаченного от суммы всех списаний периода, 0..1. */
     val progress: Float,
-    val thisMonth: List<RecurringTileUi>,
-    /** Годовые платежи других месяцев, ближайшие сначала. */
+    /** Платежи со списаниями в периоде, по дате первого. */
+    val inPeriod: List<RecurringTileUi>,
+    /** Платежи без списаний в периоде, ближайшие сначала. */
     val later: List<UpcomingRecurringUi>,
+    /** Текущий календарный период: сегодня, эта неделя, месяц, квартал, полугодие или год. */
+    val period: TransactionPeriod = TransactionPeriod.Month,
+    /** Даты периода: «Sep 1 – Sep 30». */
+    val periodDates: String = "",
 )
 
 fun buildRecurrings(
@@ -57,22 +66,24 @@ fun buildRecurrings(
     recurrings: List<Recurring>,
     categories: List<Category>,
     transactions: List<Transaction>,
+    period: TransactionPeriod = TransactionPeriod.Month,
 ): RecurringsUiState {
-    val monthStart = today.withDayOfMonth(1)
-    val monthEnd = today.withDayOfMonth(today.lengthOfMonth())
-    val spentThisMonth = transactions.filter {
-        it.amount.minor < 0 && !it.date.isBefore(monthStart) && !it.date.isAfter(today)
+    val range = period.calendar(today)
+    val start = range.start
+    val end = range.endInclusive
+    val spentInPeriod = transactions.filter {
+        it.amount.minor < 0 && !it.date.isBefore(start) && !it.date.isAfter(today)
     }
     val toneById = categories.associate { it.id to it.tone }
     val matched = mutableSetOf<String>()
-    val (dueThisMonth, notThisMonth) = recurrings
-        .map { it to it.dueDates(monthStart, monthEnd) }
+    val (dueInPeriod, notInPeriod) = recurrings
+        .map { it to it.dueDates(start, end) }
         .partition { (_, dates) -> dates.isNotEmpty() }
 
-    val tiles = dueThisMonth.sortedBy { (_, dates) -> dates.first().toEpochDay() }.map { (recurring, dates) ->
-        // Списание внесено, если в этом месяце есть расход с тем же названием или той же суммой
+    val tiles = dueInPeriod.sortedBy { (_, dates) -> dates.first().toEpochDay() }.map { (recurring, dates) ->
+        // Списание внесено, если в периоде есть расход с тем же названием или той же суммой
         // в той же категории. Одна транзакция закрывает одно списание, у еженедельного их несколько.
-        val payments = spentThisMonth
+        val payments = spentInPeriod
             .filter { it.id !in matched && it.pays(recurring) }
             .take(dates.size)
         matched += payments.map { it.id }
@@ -90,11 +101,16 @@ fun buildRecurrings(
         )
     }
 
-    val later = notThisMonth
+    val later = notInPeriod
         .mapNotNull { (recurring, _) ->
-            // Годовой платёж другого месяца: следующее списание — в пределах года.
-            recurring.dueDates(monthEnd.plusDays(1), monthEnd.plusYears(1)).firstOrNull()?.let { next ->
-                UpcomingRecurringUi(recurring, next, if (next.year == today.year) shortDate(next) else longDate(next))
+            // Следующее списание после периода — в пределах года: реже, чем раз в год, платежей нет.
+            recurring.dueDates(end.plusDays(1), end.plusYears(1)).firstOrNull()?.let { next ->
+                UpcomingRecurringUi(
+                    recurring = recurring,
+                    nextDue = next,
+                    dueLabel = if (next.year == today.year) shortDate(next) else longDate(next),
+                    frequency = recurring.schedule.frequency(),
+                )
             }
         }
         .sortedBy { it.nextDue.toEpochDay() }
@@ -106,8 +122,10 @@ fun buildRecurrings(
         leftToPay = left,
         paidSoFar = paid,
         progress = if (total == 0L) 0f else paid.minor.toFloat() / total,
-        thisMonth = tiles,
+        inPeriod = tiles,
         later = later,
+        period = period,
+        periodDates = periodLabel(start, end),
     )
 }
 
@@ -135,6 +153,14 @@ private fun Transaction.pays(recurring: Recurring): Boolean =
 /** Подпись плитки: число месяца, дата годового или день недели и сколько списаний уже прошло. */
 private fun dueLabel(schedule: RecurringSchedule, dates: List<LocalDate>, paidCount: Int): String = when (schedule) {
     is RecurringSchedule.Weekly -> "${weekdayShort(schedule.dayOfWeek)} · $paidCount/${dates.size}"
-    is RecurringSchedule.Monthly -> ordinalDay(dates.first().dayOfMonth)
+    // За квартал и дольше у ежемесячного несколько списаний: видно, сколько уже прошло.
+    is RecurringSchedule.Monthly ->
+        if (dates.size == 1) ordinalDay(dates.first().dayOfMonth) else "${ordinalDay(schedule.dayOfMonth)} · $paidCount/${dates.size}"
     is RecurringSchedule.Yearly -> shortDate(dates.first())
+}
+
+private fun RecurringSchedule.frequency(): String = when (this) {
+    is RecurringSchedule.Weekly -> "Weekly"
+    is RecurringSchedule.Monthly -> "Monthly"
+    is RecurringSchedule.Yearly -> "Yearly"
 }

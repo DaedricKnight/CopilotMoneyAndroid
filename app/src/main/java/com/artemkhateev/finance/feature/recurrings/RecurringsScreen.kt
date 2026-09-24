@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,10 +42,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.artemkhateev.finance.data.AppGraph
+import com.artemkhateev.finance.data.DeviceSettings
 import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.model.Category
 import com.artemkhateev.finance.data.model.CategoryKind
 import com.artemkhateev.finance.data.model.Recurring
+import com.artemkhateev.finance.data.model.TransactionPeriod
+import com.artemkhateev.finance.data.transactionsIncluding
 import com.artemkhateev.finance.feature.categories.SuggestedCategory
 import com.artemkhateev.finance.feature.categories.existingOrNew
 import com.artemkhateev.finance.ui.components.EmptyState
@@ -53,15 +57,19 @@ import com.artemkhateev.finance.ui.components.MoneyText
 import com.artemkhateev.finance.ui.components.ProgressRing
 import com.artemkhateev.finance.ui.components.RoundAddButton
 import com.artemkhateev.finance.ui.components.SectionHeader
+import com.artemkhateev.finance.ui.components.SegmentedControl
 import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.color
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -69,15 +77,28 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+/** Ключ выбранного периода в настройках устройства. */
+private const val PERIOD_KEY = "recurrings.period"
+
+@OptIn(ExperimentalCoroutinesApi::class)
 class RecurringsViewModel(
     private val repository: FinanceRepository,
+    private val settings: DeviceSettings,
     private val today: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
 
+    private val period = settings.string(PERIOD_KEY).map { TransactionPeriod.fromKey(it) }.distinctUntilChanged()
+
+    /** Транзакции с начала текущего периода: длинная история грузится, только пока такой период выбран. */
+    private val periodTransactions = period.flatMapLatest { chosen ->
+        val day = today()
+        repository.transactionsIncluding(chosen.calendar(day).start, day).map { chosen to it }
+    }
+
     /** null — данные ещё не пришли. */
     val state: StateFlow<RecurringsUiState?> =
-        combine(repository.recurrings, repository.categories, repository.transactions) { recurrings, categories, transactions ->
-            buildRecurrings(today(), recurrings, categories, transactions)
+        combine(repository.recurrings, repository.categories, periodTransactions) { recurrings, categories, (chosen, transactions) ->
+            buildRecurrings(today(), recurrings, categories, transactions, chosen)
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Категории расходов для формы платежа. */
@@ -94,6 +115,11 @@ class RecurringsViewModel(
 
     /** Открытая форма платежа; null — закрыта. */
     val draft: StateFlow<RecurringDraft?> = mutableDraft.asStateFlow()
+
+    /** Период запоминается на устройстве и переживает перезапуск. */
+    fun setPeriod(period: TransactionPeriod) {
+        settings.putString(PERIOD_KEY, period.name)
+    }
 
     fun startNew() {
         mutableDraft.value = RecurringDraft.startingOn(today())
@@ -135,7 +161,7 @@ class RecurringsViewModel(
 
 @Composable
 fun RecurringsScreen(
-    viewModel: RecurringsViewModel = viewModel { RecurringsViewModel(AppGraph.repository) },
+    viewModel: RecurringsViewModel = viewModel { RecurringsViewModel(AppGraph.repository, AppGraph.settings) },
 ) {
     val loaded by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
@@ -145,7 +171,7 @@ fun RecurringsScreen(
     val colors = FinanceTheme.colors
 
     Box(Modifier.fillMaxSize()) {
-        if (state.thisMonth.isEmpty() && state.later.isEmpty()) {
+        if (state.inPeriod.isEmpty() && state.later.isEmpty()) {
             EmptyState("No recurring payments", "Tap + to add rent, bills and subscriptions.")
         } else {
             LazyColumn(
@@ -154,10 +180,18 @@ fun RecurringsScreen(
                 contentPadding = screenContentPadding(extraBottom = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                item(key = "period") {
+                    SegmentedControl(
+                        options = TransactionPeriod.entries.map { it.label },
+                        selectedIndex = state.period.ordinal,
+                        onSelect = { viewModel.setPeriod(TransactionPeriod.entries[it]) },
+                        fill = true,
+                    )
+                }
                 item(key = "summary") { SummaryCard(state) }
-                if (state.thisMonth.isNotEmpty()) {
-                    item(key = "month-header") { SectionHeader("This month") }
-                    items(state.thisMonth.chunked(3), key = { row -> row.first().recurring.id }) { row ->
+                if (state.inPeriod.isNotEmpty()) {
+                    item(key = "period-header") { SectionHeader(state.period.title) }
+                    items(state.inPeriod.chunked(3), key = { row -> row.first().recurring.id }) { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             row.forEach { tile ->
                                 RecurringTile(tile, onClick = { viewModel.startEdit(tile.recurring) }, modifier = Modifier.weight(1f))
@@ -226,8 +260,27 @@ private fun SummaryCard(state: RecurringsUiState) {
                 Text("paid so far", style = typography.bodySecondary, color = colors.textSecondary)
             }
         }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = state.periodDates,
+            style = typography.caption,
+            color = colors.textSecondary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
+
+/** Заголовок плиток: «This week», «This quarter»… */
+private val TransactionPeriod.title: String
+    get() = when (this) {
+        TransactionPeriod.Day -> "Today"
+        TransactionPeriod.Week -> "This week"
+        TransactionPeriod.Month -> "This month"
+        TransactionPeriod.Quarter -> "This quarter"
+        TransactionPeriod.HalfYear -> "This half-year"
+        TransactionPeriod.Year -> "This year"
+    }
 
 private val TileShape = RoundedCornerShape(18.dp)
 
@@ -286,7 +339,7 @@ private fun UpcomingRow(upcoming: UpcomingRecurringUi, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text("Yearly · ${upcoming.dueLabel}", style = typography.caption, color = colors.textSecondary)
+            Text("${upcoming.frequency} · ${upcoming.dueLabel}", style = typography.caption, color = colors.textSecondary)
         }
         Spacer(Modifier.width(8.dp))
         MoneyText(upcoming.recurring.amount)

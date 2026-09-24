@@ -4,6 +4,7 @@ import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.Recurring
 import com.artemkhateev.finance.data.model.RecurringSchedule
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -25,36 +26,36 @@ class RecurringsStateTest {
     fun `bill with a matching payment this month is paid`() {
         val state = buildRecurrings(today, listOf(gym, rent), emptyList(), listOf(spend("t1", "rent", 120_000, today.withDayOfMonth(1))))
 
-        assertEquals(listOf("r-rent", "r-gym"), state.thisMonth.map { it.recurring.id })
-        assertEquals(listOf(true, false), state.thisMonth.map { it.paid })
+        assertEquals(listOf("r-rent", "r-gym"), state.inPeriod.map { it.recurring.id })
+        assertEquals(listOf(true, false), state.inPeriod.map { it.paid })
         assertEquals(Money(120_000), state.paidSoFar)
         assertEquals(Money(3_900), state.leftToPay)
-        assertEquals("1st", state.thisMonth.first().dueLabel)
+        assertEquals("1st", state.inPeriod.first().dueLabel)
     }
 
     @Test
     fun `same amount in the same category also counts as payment`() {
         val payment = spend("t1", "FitClub", 3_900, today.withDayOfMonth(10), category = "subscriptions")
-        assertTrue(buildRecurrings(today, listOf(gym), emptyList(), listOf(payment)).thisMonth.single().paid)
+        assertTrue(buildRecurrings(today, listOf(gym), emptyList(), listOf(payment)).inPeriod.single().paid)
     }
 
     @Test
     fun `one payment closes only one bill`() {
         val twin = rent.copy(id = "r-rent-2", schedule = RecurringSchedule.Monthly(2))
         val state = buildRecurrings(today, listOf(rent, twin), emptyList(), listOf(spend("t1", "Rent", 120_000, today.withDayOfMonth(1))))
-        assertEquals(1, state.thisMonth.count { it.paid })
+        assertEquals(1, state.inPeriod.count { it.paid })
     }
 
     @Test
     fun `payment past the end of a short month is due on its last day`() {
         val internet = Recurring("r-net", "Internet", "📶", Money(2_999), RecurringSchedule.Monthly(31))
-        assertEquals("30th", buildRecurrings(today, listOf(internet), emptyList(), emptyList()).thisMonth.single().dueLabel)
+        assertEquals("30th", buildRecurrings(today, listOf(internet), emptyList(), emptyList()).inPeriod.single().dueLabel)
     }
 
     @Test
     fun `last month payment does not count`() {
         val august = spend("t1", "Rent", 120_000, LocalDate.of(2026, 8, 1))
-        assertFalse(buildRecurrings(today, listOf(rent), emptyList(), listOf(august)).thisMonth.single().paid)
+        assertFalse(buildRecurrings(today, listOf(rent), emptyList(), listOf(august)).inPeriod.single().paid)
     }
 
     @Test
@@ -66,7 +67,7 @@ class RecurringsStateTest {
             spend("t2", "Veggie box", 1_850, LocalDate.of(2026, 9, 12)),
         )
         val state = buildRecurrings(today, listOf(veggies), emptyList(), payments)
-        val tile = state.thisMonth.single()
+        val tile = state.inPeriod.single()
 
         assertEquals(4, tile.dueCount)
         assertEquals(2, tile.paidCount)
@@ -82,10 +83,47 @@ class RecurringsStateTest {
         val domain = cloud.copy(id = "r-domain", name = "Domain", schedule = RecurringSchedule.Yearly(Month.SEPTEMBER, 20))
         val state = buildRecurrings(today, listOf(cloud, domain), emptyList(), emptyList())
 
-        assertEquals(listOf("r-domain"), state.thisMonth.map { it.recurring.id })
-        assertEquals("Sep 20", state.thisMonth.single().dueLabel)
+        assertEquals(listOf("r-domain"), state.inPeriod.map { it.recurring.id })
+        assertEquals("Sep 20", state.inPeriod.single().dueLabel)
         assertEquals(LocalDate.of(2027, 3, 14), state.later.single().nextDue)
         assertEquals("Mar 14, 2027", state.later.single().dueLabel)
         assertEquals(Money(9_999), state.leftToPay)
+    }
+
+    @Test
+    fun `a quarter counts every monthly charge`() {
+        // Квартал — июль–сентябрь: аренда 1-го трижды, оплачены июль и сентябрь.
+        val payments = listOf(
+            spend("t1", "Rent", 120_000, LocalDate.of(2026, 7, 1)),
+            spend("t2", "Rent", 120_000, LocalDate.of(2026, 9, 1)),
+        )
+        val state = buildRecurrings(today, listOf(rent), emptyList(), payments, TransactionPeriod.Quarter)
+        val tile = state.inPeriod.single()
+
+        assertEquals(3, tile.dueCount)
+        assertEquals(2, tile.paidCount)
+        assertEquals("1st · 2/3", tile.dueLabel)
+        assertEquals(Money(120_000), state.leftToPay)
+        assertEquals("Jul 1 – Sep 30", state.periodDates)
+    }
+
+    @Test
+    fun `a week moves bills of other weeks to later`() {
+        // Неделя 7–13 сентября: коробка по субботам — в ней, спортзал 20-го — в «Later».
+        val veggies = Recurring("r-veg", "Veggie box", "🥕", Money(1_850), RecurringSchedule.Weekly(DayOfWeek.SATURDAY), categoryId = "groceries")
+        val state = buildRecurrings(today, listOf(gym, veggies), emptyList(), emptyList(), TransactionPeriod.Week)
+
+        assertEquals(listOf("r-veg"), state.inPeriod.map { it.recurring.id })
+        assertEquals(LocalDate.of(2026, 9, 20), state.later.single().nextDue)
+        assertEquals("Monthly", state.later.single().frequency)
+    }
+
+    @Test
+    fun `a day shows only today's bills`() {
+        val veggies = Recurring("r-veg", "Veggie box", "🥕", Money(1_850), RecurringSchedule.Weekly(DayOfWeek.SATURDAY), categoryId = "groceries")
+        val state = buildRecurrings(today, listOf(rent, veggies), emptyList(), emptyList(), TransactionPeriod.Day)
+
+        assertEquals(listOf("r-veg"), state.inPeriod.map { it.recurring.id })
+        assertEquals("Sep 12", state.periodDates)
     }
 }
