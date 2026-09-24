@@ -35,46 +35,72 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.artemkhateev.finance.data.AppGraph
+import com.artemkhateev.finance.data.DeviceSettings
 import com.artemkhateev.finance.data.FinanceRepository
 import com.artemkhateev.finance.data.model.Account
 import com.artemkhateev.finance.data.model.Money
+import com.artemkhateev.finance.data.model.TransactionPeriod
+import com.artemkhateev.finance.data.transactionsIncluding
 import com.artemkhateev.finance.ui.components.AreaLineChart
 import com.artemkhateev.finance.ui.components.EmptyState
 import com.artemkhateev.finance.ui.components.FinanceCard
 import com.artemkhateev.finance.ui.components.MoneyText
 import com.artemkhateev.finance.ui.components.RoundAddButton
+import com.artemkhateev.finance.ui.components.SegmentedControl
 import com.artemkhateev.finance.ui.components.appendMoney
 import com.artemkhateev.finance.ui.components.screenContentPadding
 import com.artemkhateev.finance.ui.format.SignStyle
 import com.artemkhateev.finance.ui.theme.FinanceTheme
 import com.artemkhateev.finance.ui.theme.TONE_BACKGROUND_ALPHA
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+/** Ключ выбранного периода в настройках устройства. */
+private const val PERIOD_KEY = "accounts.period"
+
+@OptIn(ExperimentalCoroutinesApi::class)
 class AccountsViewModel(
     private val repository: FinanceRepository,
-    today: () -> LocalDate = { LocalDate.now() },
+    private val settings: DeviceSettings,
+    private val today: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
+
+    private val period = settings.string(PERIOD_KEY).map { TransactionPeriod.fromKey(it) }.distinctUntilChanged()
+
+    /** Транзакции выбранного периода: длинная история грузится, только пока такой период выбран. */
+    private val periodTransactions = period.flatMapLatest { chosen ->
+        val day = today()
+        repository.transactionsIncluding(chosen.start(day), day).map { chosen to it }
+    }
 
     /** null — данные ещё не пришли. */
     val state: StateFlow<AccountsUiState?> =
         combine(
             repository.accounts,
-            repository.transactions,
+            periodTransactions,
             repository.holdings,
             repository.portfolioHistory,
-        ) { accounts, transactions, holdings, history ->
-            buildAccounts(today(), accounts, transactions, holdings, history)
+        ) { accounts, (chosen, transactions), holdings, history ->
+            buildAccounts(today(), accounts, transactions, holdings, history, chosen)
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Период запоминается на устройстве и переживает перезапуск. */
+    fun setPeriod(period: TransactionPeriod) {
+        settings.putString(PERIOD_KEY, period.name)
+    }
 
     /** Все счета: по ним форма проверяет, не занято ли имя. */
     val allAccounts: StateFlow<List<Account>> =
@@ -117,7 +143,7 @@ class AccountsViewModel(
 
 @Composable
 fun AccountsScreen(
-    viewModel: AccountsViewModel = viewModel { AccountsViewModel(AppGraph.repository) },
+    viewModel: AccountsViewModel = viewModel { AccountsViewModel(AppGraph.repository, AppGraph.settings) },
 ) {
     val loaded by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
@@ -135,7 +161,7 @@ fun AccountsScreen(
                 contentPadding = screenContentPadding(extraBottom = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item(key = "net-worth") { NetWorthCard(state) }
+                item(key = "net-worth") { NetWorthCard(state, onPeriod = viewModel::setPeriod) }
                 state.groups.forEach { group ->
                     item(key = "header-${group.title}") { GroupHeader(group) }
                     item(key = "group-${group.title}") {
@@ -175,7 +201,7 @@ fun AccountsScreen(
 }
 
 @Composable
-private fun NetWorthCard(state: AccountsUiState) {
+private fun NetWorthCard(state: AccountsUiState, onPeriod: (TransactionPeriod) -> Unit) {
     val colors = FinanceTheme.colors
     val typography = FinanceTheme.typography
     FinanceCard(
@@ -209,6 +235,13 @@ private fun NetWorthCard(state: AccountsUiState) {
             firstLabel = state.firstLabel,
             lastLabel = state.lastLabel,
             modifier = Modifier.fillMaxWidth().height(120.dp),
+        )
+        Spacer(Modifier.height(14.dp))
+        SegmentedControl(
+            options = TransactionPeriod.entries.map { it.label },
+            selectedIndex = state.period.ordinal,
+            onSelect = { onPeriod(TransactionPeriod.entries[it]) },
+            fill = true,
         )
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth()) {

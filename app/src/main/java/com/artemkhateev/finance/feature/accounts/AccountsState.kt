@@ -7,9 +7,10 @@ import com.artemkhateev.finance.data.model.Holding
 import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import com.artemkhateev.finance.data.model.portfolioValueByDay
 import com.artemkhateev.finance.data.model.value
-import com.artemkhateev.finance.data.transactionsWindowStart
+import com.artemkhateev.finance.ui.format.longDate
 import com.artemkhateev.finance.ui.format.shortDate
 import java.time.LocalDate
 
@@ -35,15 +36,17 @@ data class AccountsUiState(
     val assets: Money,
     /** Сколько должны, положительным числом. */
     val liabilities: Money,
-    /** Чистый капитал на конец каждого дня загруженного окна, в центах. */
+    /** Чистый капитал на конец каждого дня с конца дня перед периодом по сегодня, в центах. */
     val history: List<Long>,
-    /** Изменение чистого капитала с начала окна. */
+    /** Изменение чистого капитала за период. */
     val change: Money,
     val firstLabel: String,
     val lastLabel: String,
     val groups: List<AccountGroupUi>,
     /** Счета, чья стоимость считается по позициям: остаток у них вручную не вводится. */
     val holdingAccountIds: Set<String>,
+    /** Период графика: последние день, неделя, месяц… по сегодня. */
+    val period: TransactionPeriod = TransactionPeriod.Month,
 )
 
 /** Порядок групп: сначала деньги, потом долги. */
@@ -60,7 +63,10 @@ fun buildAccounts(
     transactions: List<Transaction>,
     holdings: List<Holding> = emptyList(),
     portfolioHistory: List<PortfolioSnapshot> = emptyList(),
+    period: TransactionPeriod = TransactionPeriod.Month,
 ): AccountsUiState {
+    // График начинается с конца дня перед периодом: изменение за день — это сегодня против вчерашнего вечера.
+    val from = period.start(today).minusDays(1)
     // Счёт с позициями стоит столько, сколько его позиции, а не сколько когда-то ввели в остаток.
     val holdingsValue = holdings.groupBy { it.accountId }.mapValues { (_, list) -> list.sumOf { it.value.minor } }
     val holdingAccountIds = accounts.map { it.id }.filter { it in holdingsValue }.toSet()
@@ -69,14 +75,14 @@ fun buildAccounts(
     val assets = accounts.filter { it.type != AccountType.CreditCard }.sumOf { valueOf(it) }
     val liabilities = -accounts.filter { it.type == AccountType.CreditCard }.sumOf { valueOf(it) }
 
-    val cashHistory = netWorthHistory(today, accounts.filterNot { it.id in holdingAccountIds }, transactions)
+    val cashHistory = netWorthHistory(from, today, accounts.filterNot { it.id in holdingAccountIds }, transactions)
     // Прошлую стоимость позиций знают только снимки портфеля. Позиций не осталось — их история
     // уходит целиком, как у любого удалённого счёта.
     val history = if (holdingAccountIds.isEmpty()) {
         cashHistory
     } else {
         val holdingsNow = holdingAccountIds.sumOf { holdingsValue.getValue(it) }
-        val invested = portfolioValueByDay(transactionsWindowStart(today), today, portfolioHistory, holdingsNow)
+        val invested = portfolioValueByDay(from, today, portfolioHistory, holdingsNow)
         cashHistory.zip(invested) { cash, investments -> cash + investments }
     }
 
@@ -106,19 +112,20 @@ fun buildAccounts(
         liabilities = Money(liabilities),
         history = history,
         change = Money(history.last() - history.first()),
-        firstLabel = shortDate(transactionsWindowStart(today)),
+        // Начало в прошлом году — с годом, иначе «since Sep 24» не отличить от сегодняшнего.
+        firstLabel = if (from.year != today.year) longDate(from) else shortDate(from),
         lastLabel = shortDate(today),
         groups = groups,
         holdingAccountIds = holdingAccountIds,
+        period = period,
     )
 }
 
 /**
- * Истории остатков нет, поэтому идём назад от текущих: капитал на конец дня — это нынешний
+ * Истории остатков нет, поэтому идём назад от текущих: капитал на конец дня с [start] по [today] — это нынешний
  * минус всё, что случилось после. Транзакции удалённых счетов на остатки не влияют и не учитываются.
  */
-fun netWorthHistory(today: LocalDate, accounts: List<Account>, transactions: List<Transaction>): List<Long> {
-    val start = transactionsWindowStart(today)
+fun netWorthHistory(start: LocalDate, today: LocalDate, accounts: List<Account>, transactions: List<Transaction>): List<Long> {
     val accountIds = accounts.map { it.id }.toSet()
     val movedByDay = transactions
         .filter { it.accountId in accountIds && !it.date.isBefore(start) && !it.date.isAfter(today) }

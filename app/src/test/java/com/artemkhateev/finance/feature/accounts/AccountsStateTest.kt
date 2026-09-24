@@ -8,6 +8,7 @@ import com.artemkhateev.finance.data.model.Money
 import com.artemkhateev.finance.data.model.PortfolioSnapshot
 import com.artemkhateev.finance.data.model.QUANTITY_SCALE
 import com.artemkhateev.finance.data.model.Transaction
+import com.artemkhateev.finance.data.model.TransactionPeriod
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalDate
@@ -44,12 +45,12 @@ class AccountsStateTest {
         val state = buildAccounts(today, listOf(checking), listOf(tx("checking", -10_000, 15), tx("checking", 50_000, 12)))
         val history = state.history
 
-        // Окно — с 1 августа по 15 сентября.
-        assertEquals(46, history.size)
-        assertEquals(100_000L, history[45]) // конец 15-го
-        assertEquals(110_000L, history[44]) // конец 14-го: расхода 15-го ещё не было
-        assertEquals(110_000L, history[42]) // конец 12-го: доход уже пришёл
-        assertEquals(60_000L, history[41]) // конец 11-го: дохода ещё нет
+        // Месяц — 16 августа – 15 сентября; график с конца 15 августа.
+        assertEquals(32, history.size)
+        assertEquals(100_000L, history[31]) // конец 15-го
+        assertEquals(110_000L, history[30]) // конец 14-го: расхода 15-го ещё не было
+        assertEquals(110_000L, history[28]) // конец 12-го: доход уже пришёл
+        assertEquals(60_000L, history[27]) // конец 11-го: дохода ещё нет
         assertEquals(Money(40_000), state.change)
     }
 
@@ -76,7 +77,7 @@ class AccountsStateTest {
         val state = buildAccounts(today, listOf(checking, brokerage), emptyList(), listOf(fund), snapshots)
 
         assertEquals(200_000L, state.history.first()) // до первого снимка — его значение
-        assertEquals(200_000L, state.history[41]) // конец 11-го
+        assertEquals(200_000L, state.history[27]) // конец 11-го
         assertEquals(220_000L, state.history.last())
         assertEquals(Money(20_000), state.change)
     }
@@ -86,6 +87,30 @@ class AccountsStateTest {
         val snapshots = listOf(PortfolioSnapshot(LocalDate.of(2026, 9, 10), Money(100_000)))
         val state = buildAccounts(today, listOf(checking), emptyList(), emptyList(), snapshots)
 
-        assertEquals(List(46) { 100_000L }, state.history)
+        assertEquals(List(32) { 100_000L }, state.history)
+    }
+
+    @Test
+    fun `period sets how far back the history goes`() {
+        val day = buildAccounts(today, listOf(checking), emptyList(), period = TransactionPeriod.Day)
+        assertEquals(2, day.history.size)
+        assertEquals("Sep 14", day.firstLabel)
+
+        val week = buildAccounts(today, listOf(checking), emptyList(), period = TransactionPeriod.Week)
+        assertEquals(8, week.history.size)
+        assertEquals("Sep 8", week.firstLabel)
+
+        // Год: с конца 15 сентября 2025-го, подпись с годом.
+        val year = buildAccounts(today, listOf(checking), emptyList(), period = TransactionPeriod.Year)
+        assertEquals(366, year.history.size)
+        assertEquals("Sep 15, 2025", year.firstLabel)
+    }
+
+    @Test
+    fun `change counts only the period`() {
+        val transactions = listOf(tx("checking", 50_000, 10), tx("checking", -10_000, 15))
+
+        assertEquals(Money(40_000), buildAccounts(today, listOf(checking), transactions, period = TransactionPeriod.Week).change)
+        assertEquals(Money(-10_000), buildAccounts(today, listOf(checking), transactions, period = TransactionPeriod.Day).change)
     }
 }
